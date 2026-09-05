@@ -98,13 +98,18 @@
   .bar u{height:100%;background:var(--oos);width:0;transition:width .25s}
 
   .board{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;margin:12px 0}
-  .cell{aspect-ratio:1;border:1px solid rgba(255,129,72,.3);background:var(--card);border-radius:8px;
+  .cell{position:relative;aspect-ratio:1;border:1px solid rgba(255,129,72,.3);background:var(--card);border-radius:8px;
         font-family:var(--mono);font-size:12px;font-weight:700;color:var(--muted);
         display:flex;align-items:center;justify-content:center;cursor:pointer}
+  .cell .x-clear{position:absolute;top:1px;right:2px;width:14px;height:14px;border-radius:50%;
+                background:rgba(229,62,62,.12);color:var(--bad);font-size:10px;font-weight:900;
+                display:none;align-items:center;justify-content:center;line-height:1}
+  .cell:hover .x-clear{display:flex}
   .cell.d{background:var(--done);border-color:var(--done);color:#fff}
   .cell.u{background:var(--uploaded);border-color:var(--uploaded);color:#fff}
   .cell.o{background:var(--oos);border-color:var(--oos);color:#fff}
-  .cell.opened{background:var(--c2);border-color:var(--c2);color:#fff}
+  .cell.opened{background:rgba(28,168,220,.18);border-color:var(--c2);color:#0E5D7A}
+  .cell.opened.n{background:var(--c2);border-color:var(--c2);color:#fff;box-shadow:0 0 0 2px rgba(28,168,220,.4)}
   .cell.n{border-color:var(--next);color:var(--next);box-shadow:0 0 0 2px rgba(28,168,220,.4)}
 
   .next{background:var(--card);border-radius:16px;padding:16px;margin-bottom:14px;
@@ -723,22 +728,21 @@ function chipRow(el,arr,k,colorFn){
 }
 function pjColorFn(v,i){const c=PJ_COLORS[i%PJ_COLORS.length];return c;}
 
-function mbPapeDupHint(){
-  if(PJ[sel.pj] !== "MB PAPE"){
+function projectDupHint(){
+  const linked = ["MB PAPE", "Mega Momday", "D9 Ops PAPE"];
+  if(!linked.includes(PJ[sel.pj])){
     $("amHint").style.display = "none";
     $("amHint").textContent = "";
     return;
   }
   const amFilter = AM[sel.am];
-  const dupes = items.filter(x => x.pj === "MB PAPE" && (amFilter === "ทั้งหมด" || x.am === amFilter) && x.pid && items.some(y => y.pj === "Mega Momday" && y.url === x.url));
+  const dupes = items.filter(x => x.pj === PJ[sel.pj] && (amFilter === "ทั้งหมด" || x.am === amFilter) && items.some(y => y.pj !== x.pj && y.url === x.url && linked.includes(y.pj)));
   if(!dupes.length){
     $("amHint").style.display = "none";
     $("amHint").textContent = "";
     return;
   }
-  const pids = dupes.map(x => x.pid).filter(Boolean).slice(0,3);
-  const extra = dupes.length - pids.length;
-  const text = `Mega Momday duplicated: ${dupes.length} PID${dupes.length>1?'s':''}${pids.length ? ` · ${pids.join(", ")}${extra>0 ? ", ..." : ""}` : ""}`;
+  const text = `Cross-project duplicate: ${dupes.length} item${dupes.length>1?'s':''}`;
   $("amHint").textContent = text;
   $("amHint").style.display = "block";
 }
@@ -776,7 +780,7 @@ function crossAmBadge(x){
 }
 
 function render(){
-  chipRow($("cPj"),PJ,"pj",pjColorFn);chipRow($("cAm"),AM,"am");chipRow($("cPf"),PF,"pf",pfColor);mbPapeDupHint();
+  chipRow($("cPj"),PJ,"pj",pjColorFn);chipRow($("cAm"),AM,"am");chipRow($("cPf"),PF,"pf",pfColor);projectDupHint();
   const isMM=PJ[sel.pj]==="Mega Momday";
   $("laySlot").style.display=isMM?"block":"none";
   if(isMM){
@@ -809,7 +813,8 @@ function render(){
     const cls=openOnly?(isOpened(x)?'opened':''):`${isCap(x)?'d':''} ${isOos(x)?'o':''}`;
     const statusClass = isUploaded(x) ? 'u' : (isCap(x) ? 'd' : (isOos(x) ? 'o' : ''));
     const finalClass = openOnly ? cls : statusClass;
-    return `<div class="cell ${finalClass} ${i===cur?'n':''}" data-j="${i}">${it[i].seq||i+1}</div>`;}).join("");
+    const showX = !isUploaded(x) && !openOnly ? '<span class="x-clear" data-clear="'+i+'">×</span>' : '';
+    return `<div class="cell ${finalClass} ${i===cur?'n':''}" data-j="${i}">${showX}${it[i].seq||i+1}</div>`;}).join("");
 
   const nx=it.findIndex(x=>!isDone(x));
   if(!it.length){
@@ -927,6 +932,19 @@ if(o){
 }
   const t=e.target.closest("[data-t]");if(t){setCap(+t.dataset.t,!isCap(curList()[+t.dataset.t]));return;}
   const s=e.target.closest("[data-s]");if(s){setOos(+s.dataset.s);return;}
+  const clearCell=e.target.closest("[data-clear]");
+  if(clearCell){
+    const idx=+clearCell.dataset.clear;
+    const x=curList()[idx];
+    if(x){
+      clearLocalStatusForItem(x);
+      pingLog(x,"cleared");
+      saveMe();
+      render();
+      toast("ล้างสถานะรายการนี้แล้ว");
+    }
+    return;
+  }
   const j=e.target.closest("[data-j]");if(j){goto(+j.dataset.j);return;}
   const f=e.target.closest("[data-f]");if(f){filter=f.dataset.f;
     document.querySelectorAll(".tab").forEach(y=>y.classList.toggle("on",y===f));render();return;}
