@@ -568,9 +568,24 @@ function matchSlotForStatus(e, slotName){
   const derived=slotFromTs(e.ts);
   return derived === slotName;
 }
-function getBestStatus(pj, url, slotName) {
+function eventIdentityKey(e, slotName){
+  const slot = slotName || normalizeSlot(e.slot) || slotFromFile(e.file) || slotFromTs(e.ts) || "";
+  return [e.project, e.am, e.platform, e.url, slot].join("|");
+}
+function matchServerEvent(e, project, url, slotName, amName, pfName){
+  if (e.project !== project || e.url !== url) return false;
+  if (slotName && !matchSlotForStatus(e, slotName)) return false;
+  if (amName && e.am !== amName) return false;
+  if (pfName && e.platform !== pfName) return false;
+  // Strong safeguard: every synchronized event must match the same canonical identity
+  // itemKey = project|AM|platform|url|slot. This avoids URL-only collisions across rows.
+  const itemKey = [project, amName || e.am, pfName || e.platform, url, slotName || normalizeSlot(e.slot) || slotFromFile(e.file) || slotFromTs(e.ts) || ""].join("|");
+  const eventKey = eventIdentityKey(e, slotName);
+  return isTodayTs(e.ts) && itemKey === eventKey;
+}
+function getBestStatus(pj, url, slotName, amName, pfName) {
   let best = null;
-  const evts = serverLogRaw.filter(e => e.project === pj && e.url === url && isTodayTs(e.ts) && matchSlotForStatus(e, slotName));
+  const evts = serverLogRaw.filter(e => matchServerEvent(e, pj, url, slotName, amName, pfName));
   // Upload is irreversible for the current day and outranks every other event.
   const up = evts.filter(e => e.event === "uploaded").sort((a,b) => b.ts - a.ts)[0];
   if (up) return up;
@@ -578,20 +593,19 @@ function getBestStatus(pj, url, slotName) {
   evts.sort((a,b) => b.ts - a.ts);
   return evts[0]||null;
 }
-function latestEventFor(project,url,slotName){
+function latestEventFor(project,url,slotName,amName,pfName){
   // Only today's events count — an upload from a previous day is stale evidence for
   // today's price/stock, and the daily reset already treats every day as a fresh
   // start, so cross-AM/cross-project sync must respect that same boundary too.
   let best=null;
   for(const e of serverLogRaw){
-    if(e.project!==project||e.url!==url||!isTodayTs(e.ts))continue;
-    if(slotName && !matchSlotForStatus(e, slotName))continue;
+    if(!matchServerEvent(e, project, url, slotName, amName, pfName))continue;
     if(!best||e.ts>best.ts)best=e;
   }
   return best;
 }
-function sameProjectStatus(project,url,slotName){
-  const e=latestEventFor(project,url,slotName);
+function sameProjectStatus(project,url,slotName,amName,pfName){
+  const e=latestEventFor(project,url,slotName,amName,pfName);
   if(!e||e.event==="cleared")return null;
   return e;
 }
@@ -605,7 +619,7 @@ function syncAllFromServer() {
   items.forEach(x => {
     const k = sKey(x), uk = uKey(x);
     if(isOpenOnlyProject(x.pj)){
-      const latest=latestEventFor(x.pj,x.url);
+      const latest=latestEventFor(x.pj,x.url,null,x.am,x.pf);
       if(latest?.event==="opened"){
         me.opened[openKey(x)]=latest.ts;changed=true;
       }else if(latest?.event==="cleared"){
@@ -616,7 +630,7 @@ function syncAllFromServer() {
     const slotName = x.pj === "Mega Momday" ? TIME_SLOTS[sel.slot||0] : null;
     // Same-project status: Upload wins; otherwise the latest action wins.
     // For Mega Momday, never let a 12:00 upload satisfy a 20:00 slot (and vice versa).
-    let st = slotName ? getBestStatus(x.pj, x.url, slotName) : getBestStatus(x.pj, x.url);
+    let st = slotName ? getBestStatus(x.pj, x.url, slotName, x.am, x.pf) : getBestStatus(x.pj, x.url, null, x.am, x.pf);
     if (x.pj === "Mega Momday") {
       const mb = getBestStatus("MB PAPE", x.url, "12:00");
       const ownUpload=st?.event==="uploaded";
@@ -690,6 +704,10 @@ function pingUploaded(x,filename){
 const curList=()=>items.filter(x=>x.pj===PJ[sel.pj]&&(AM[sel.am]==="ทั้งหมด"||x.am===AM[sel.am])&&x.pf===PF[sel.pf]);
 function sKey(x,slotOverride){return x.pj==="Mega Momday"?(x.url+"@"+(slotOverride!==undefined?slotOverride:TIME_SLOTS[sel.slot||0])):x.url;}
 function uKey(x,slotOverride){return x.pj==="Mega Momday"?sKey(x,slotOverride):(x.pj+"@"+x.url);}
+function itemIdentityKey(x, slotOverride){
+  const slot = x.pj === "Mega Momday" ? (slotOverride !== undefined ? slotOverride : TIME_SLOTS[sel.slot||0]) : "";
+  return [x.pj, x.am, x.pf, x.url, slot].join("|");
+}
 // A project with no Drive folder mapped is treated as "open-only" automatically —
 // no flag, no photo, no upload logic applies. Adding a future ad-hoc campaign like
 // this just means NOT giving it a folder; no other code needs to change.
@@ -777,7 +795,7 @@ function crossAmBadge(x){
   // MB PAPE: informational source tag only, never a warning. If the same URL was uploaded
   // by another AM/project, show who and when without treating it as a failure.
   if(x.pj === "MB PAPE"){
-    const st = sameProjectStatus(x.pj, x.url);
+    const st = sameProjectStatus(x.pj, x.url, null, x.am, x.pf);
     if(st && st.event === "uploaded"){
       return `<div style="font-size:11px;color:var(--uploaded);font-weight:700;margin-top:4px;background:var(--uploadedbg);padding:4px 8px;border-radius:6px;display:inline-block">📤 อัปโหลดโดย ${st.am} — ${fmtTS(st.ts)}</div>`;
     }
@@ -785,7 +803,7 @@ function crossAmBadge(x){
   }
   // Case A: same-project cross-AM, already auto-synced by syncAllFromServer — confirm who.
   if(me.autoSame[k]){
-    const st=sameProjectStatus(x.pj,x.url);
+    const st=sameProjectStatus(x.pj,x.url,null,x.am,x.pf);
     if(st){
       const label=st.event==="uploaded"?"ส่งรูปเข้า Drive แล้ว":st.event==="oos"?"แจ้งของหมดแล้ว":"แคปแล้ว";
       return `<div style="font-size:11px;color:var(--c2);font-weight:700;margin-top:4px;background:var(--c2b);padding:4px 8px;border-radius:6px;display:inline-block">✅ ยืนยันเสร็จแล้ว — ${label}โดย ${st.am} (${st.project}) — ${fmtTS(st.ts)}</div>`;
@@ -893,10 +911,7 @@ function render(){
         <div class="tick" data-t="${i}">${c?"❌ ยกเลิก":"มีของ"}</div>
         <div class="oosbtn" data-s="${i}">${o?"❌ ยกเลิก":"หมด"}</div>
       </div>
-      ${x.pj === "MB PAPE" && items.some(y => y.pj === "Mega Momday" && y.url === x.url)
-        ? '<div style="grid-column:2 / span 2;display:flex;justify-content:flex-start;padding:0 2px 2px 2px"><span style="display:inline-block;padding:2px 6px;border-radius:6px;background:#fff;color:#111;border:1px solid rgba(17,17,17,.18);font-size:9px;font-weight:800;line-height:1.2;letter-spacing:.04em">MM Dup</span></div>'
-        : ''}
-      </div>`;
+    </div>`;
   };
   const rows=it.map((x,i)=>renderRow(x,i)).join("");
   $("list").innerHTML=rows||`<div class="empty">ไม่มีรายการในตัวกรองนี้</div>`;
