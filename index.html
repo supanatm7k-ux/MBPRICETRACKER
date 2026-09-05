@@ -63,6 +63,7 @@
   .sync{font-size:12px;color:var(--muted);font-weight:600}
   .tiny{background:#fff;border:1px solid var(--line);color:var(--ink);font-size:13px;font-weight:700;
         cursor:pointer;font-family:var(--sans);padding:7px 12px;border-radius:8px}
+  .tiny.danger{border-color:rgba(229,62,62,.35);color:var(--bad);background:#fffaf8}
 
   .lay{margin-bottom:9px}
   .lay .cap{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin-bottom:5px;font-weight:700}
@@ -254,6 +255,7 @@
     <span class="sync" id="sync">กำลังโหลด…</span>
     <div style="display:flex;gap:6px">
       <button class="ghost" id="refresh">↻ อัปเดตลิสต์</button>
+      <button class="tiny danger" id="hardResetUploadBtn" title="ล้างสถานะ upload ของสินค้าชิ้นที่เลือก">Reset upload 🔐</button>
       <button class="tiny" id="dashBtn">แดชบอร์ด 📊</button>
     </div>
   </div>
@@ -361,6 +363,7 @@ const D9_PROJECT="D9 Ops PAPE";
 // AM's saved มีของ/หมด status on their own phone (it becomes a different localStorage key).
 // Prior drafts used cap_me_v8 / v10 / v14 at different times; none of that carries forward.
 const KME="cap_me_final_v1", KCACHE="cap_csv_v1", KCTIME="cap_csv_time_v1";
+const HARD_RESET_PASSWORD="reset";
 const PJ_COLORS=[{fill:"#E91E63",tint:"rgba(233,30,99,.1)"},{fill:"#1CA8DC",tint:"rgba(28,168,220,.1)"},
                   {fill:"#9B5DE5",tint:"rgba(155,93,229,.1)"},{fill:"#FF8148",tint:"rgba(255,129,72,.1)"}];
 
@@ -745,6 +748,24 @@ function clearUploadedStatusForItem(x){
   delete PIC[k];
   try { if (typeof picDel === "function") picDel(k); } catch (e) {}
 }
+function hardResetSelectedUpload(){
+  const item = curList()[cur];
+  if(!item){toast("ไม่มีสินค้าในตัวเลือกนี้");return false;}
+  const pass = window.prompt("กรอกรหัสล้างสถานะ upload ของสินค้าชิ้นนี้:");
+  if(pass !== HARD_RESET_PASSWORD){
+    if(pass !== null) toast("รหัสไม่ถูกต้อง");
+    return false;
+  }
+  if(!me.uploaded[uKey(item)]){
+    toast("สินค้าชิ้นนี้ไม่มีสถานะ upload ที่ต้องล้าง");
+    return false;
+  }
+  clearUploadedStatusForItem(item);
+  saveMe();
+  render();
+  toast("ล้างสถานะ upload ของสินค้าชิ้นนี้แล้ว");
+  return true;
+}
 
 function pfColor(v){
   if(/shopee/i.test(v))return{fill:"#EE4D2D",tint:"rgba(238,77,45,.12)"};
@@ -981,6 +1002,7 @@ $("prev").onclick=()=>goto(cur-1);
 $("nextBtn").onclick=()=>goto(cur+1);
 $("refresh").onclick=()=>{checkDailyReset();pull(true);};
 $("refresh2").onclick=()=>{checkDailyReset();pull(true);};
+$("hardResetUploadBtn").onclick=()=>hardResetSelectedUpload();
 
 document.addEventListener("click",async e=>{
   const ch=e.target.closest(".chip");
