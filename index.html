@@ -768,7 +768,7 @@ function projectDupHint(){
 function mbDupHint(x){
   if(x.pj !== "MB PAPE") return "";
   return items.some(y => y.pj === "Mega Momday" && y.url === x.url)
-    ? '<div style="font-size:10px;color:var(--oos);font-weight:700;line-height:1.2;margin-top:4px">Duplicated with MM-Project</div>'
+    ? '<span style="display:inline-block;margin-top:2px;padding:2px 6px;border-radius:6px;background:#fff;color:#111;border:1px solid rgba(17,17,17,.18);font-size:9px;font-weight:800;line-height:1.2;letter-spacing:.04em">MM Dup</span>'
     : "";
 }
 
@@ -843,8 +843,11 @@ function render(){
     const finalClass = openOnly ? cls : statusClass;
     const isOpenCardClearable = openOnly && isOpened(x) && !isUploaded(x);
     const showX = !isUploaded(x) && (isCap(x) || isOos(x) || isOpenCardClearable) ? '<span class="x-clear" data-clear="'+i+'">×</span>' : '';
+    const dupBadge = x.pj === "MB PAPE" && items.some(y => y.pj === "Mega Momday" && y.url === x.url)
+      ? '<div style="position:absolute;top:-8px;left:50%;transform:translateX(-50%);padding:2px 6px;border-radius:6px;background:#fff;color:#111;border:1px solid rgba(17,17,17,.18);font-size:9px;font-weight:800;line-height:1.2;letter-spacing:.04em;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.08)">MM Dup</div>'
+      : '';
     const openCardStyle = openOnly && isOpened(x) ? ` style="background:${projectTint};border-color:${projectFill};color:${projectFill};box-shadow:0 0 0 2px ${projectTint};"` : '';
-    return `<div class="cell ${finalClass} ${i===cur?'n':''}" data-j="${i}"${openCardStyle}>${showX}${it[i].seq||i+1}</div>`;}).join("");
+    return `<div class="cell ${finalClass} ${i===cur?'n':''}" data-j="${i}"${openCardStyle}>${dupBadge}${showX}${it[i].seq||i+1}</div>`;}).join("");
 
   const nx=it.findIndex(x=>!isDone(x));
   if(!it.length){
@@ -878,7 +881,7 @@ function render(){
     const c=isCap(x),o=isOos(x),u=isUploaded(x),ts=me.ts[sKey(x)];
     if(filter==="todo"&&(c||o))return"";if(filter==="done"&&!c&&!o)return"";
     return `<div class="item ${u?'u':''} ${c&&!u?'d':''} ${o?'o':''} ${i===cur?'cur':''}" id="it${i}">
-      <div class="nums"><b>${x.seq||i+1}</b>${x.no?`<s>No.${x.no}</s>`:""}${mbDupHint(x)}</div>
+      <div class="nums"><b>${x.seq||i+1}</b>${x.no?`<s>No.${x.no}</s>`:""}</div>
       <div class="mid">
         <div class="nm">${x.name||"(ไม่มีชื่อสินค้า)"}${o?'<span class="badge">ของหมด</span>':''}</div>
         <div class="meta"><span class="am">${x.am}</span>${x.pid?`<span class="lk">ID ${x.pid}</span>`:""}<span class="lk">${short(x.url)}</span></div>
@@ -889,7 +892,11 @@ function render(){
         <a class="open" href="${x.url}" target="_blank" rel="noopener" data-o="${i}">เปิด</a>
         <div class="tick" data-t="${i}">${c?"❌ ยกเลิก":"มีของ"}</div>
         <div class="oosbtn" data-s="${i}">${o?"❌ ยกเลิก":"หมด"}</div>
-      </div></div>`;
+      </div>
+      ${x.pj === "MB PAPE" && items.some(y => y.pj === "Mega Momday" && y.url === x.url)
+        ? '<div style="grid-column:2 / span 2;display:flex;justify-content:flex-start;padding:0 2px 2px 2px"><span style="display:inline-block;padding:2px 6px;border-radius:6px;background:#fff;color:#111;border:1px solid rgba(17,17,17,.18);font-size:9px;font-weight:800;line-height:1.2;letter-spacing:.04em">MM Dup</span></div>'
+        : ''}
+      </div>`;
   };
   const rows=it.map((x,i)=>renderRow(x,i)).join("");
   $("list").innerHTML=rows||`<div class="empty">ไม่มีรายการในตัวกรองนี้</div>`;
