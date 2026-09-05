@@ -88,6 +88,11 @@
                 background:#fff;color:var(--gold);font-size:12px;font-weight:800;
                 font-family:var(--sans);line-height:1;cursor:pointer;padding:7px 12px;white-space:nowrap}
   .count em{margin-left:auto;font-style:normal;font-size:13px;color:var(--oos);font-weight:700}
+  .count-tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-left:8px}
+  .head-reset{border:1px solid rgba(255,129,72,.3);background:#fff;color:var(--ink);font-size:11px;font-weight:700;
+               font-family:var(--sans);padding:6px 10px;border-radius:999px;cursor:pointer}
+  .am-hint{font-size:10px;line-height:1.3;color:var(--c2);font-weight:800;margin-top:4px;padding:4px 8px;border-radius:999px;background:rgba(28,168,220,.1);border:1px solid rgba(28,168,220,.2);display:none;letter-spacing:.02em}
+  .head-reset.danger{border-color:rgba(229,62,62,.35);color:var(--bad)}
   .bar{height:6px;background:rgba(255,129,72,.15);border-radius:3px;margin-top:8px;overflow:hidden;display:flex}
   .bar i{height:100%;background:var(--done);width:0;transition:width .25s}
   .bar u{height:100%;background:var(--oos);width:0;transition:width .25s}
@@ -99,6 +104,7 @@
   .cell.d{background:var(--done);border-color:var(--done);color:#fff}
   .cell.u{background:var(--uploaded);border-color:var(--uploaded);color:#fff}
   .cell.o{background:var(--oos);border-color:var(--oos);color:#fff}
+  .cell.opened{background:var(--c2);border-color:var(--c2);color:#fff}
   .cell.n{border-color:var(--next);color:var(--next);box-shadow:0 0 0 2px rgba(28,168,220,.4)}
 
   .next{background:var(--card);border-radius:16px;padding:16px;margin-bottom:14px;
@@ -145,6 +151,7 @@
   .item.d{background:var(--donebg);border-color:rgba(72,187,120,.4)}
   .item.u{background:var(--uploadedbg);border-color:rgba(37,99,235,.38)}
   .item.o{background:var(--oosbg);border-color:rgba(245,101,101,.4)}
+  .item.opened{background:var(--c2b);border-color:rgba(28,168,220,.45)}
   .item.cur{border-color:var(--next);box-shadow:0 0 0 2px rgba(28,168,220,.2)}
   .nums{text-align:right}
   .nums b{font-family:var(--mono);font-size:18px;font-weight:800;display:block;line-height:1}
@@ -245,7 +252,7 @@
   </div>
 
   <div class="lay l1"><div class="cap">Project</div><div class="chips" id="cPj"></div></div>
-  <div class="lay l2"><div class="cap">AM</div><div class="chips" id="cAm"></div></div>
+  <div class="lay l2"><div class="cap">AM</div><div class="chips" id="cAm"></div><div class="am-hint" id="amHint"></div></div>
   <div class="lay l3"><div class="cap">Platform</div><div class="chips" id="cPf"></div></div>
   <div class="lay" id="laySlot" style="display:none"><div class="cap">เวลาแคป (Mega Momday)</div><div class="chips" id="cSlot"></div></div>
   <div class="note" id="openOnlyNote" style="display:none;color:var(--c2);font-weight:700;background:var(--c2b);padding:8px 10px;border-radius:8px;margin-bottom:6px">โปรเจกต์นี้แค่เปิดลิงก์ ไม่ต้องแคปรูปหรืออัปโหลด</div>
@@ -253,6 +260,10 @@
   <div class="head">
     <div class="count"><b id="c">0</b><span id="tot">/ 0</span>
       <button class="head-refresh" id="refresh2">↻ อัปเดตลิสต์ก่อนเริ่ม Capture</button>
+      <div class="count-tools">
+        <button class="head-reset" id="clearCapBtn" style="display:none">ล้างมีของ</button>
+        <button class="head-reset danger" id="clearOosBtn" style="display:none">ล้างของหมด</button>
+      </div>
       <em id="st"></em></div>
     <div class="bar"><i id="pb"></i><u id="po"></u></div>
   </div>
@@ -264,7 +275,6 @@
   <div id="gateArea"></div>
   <div class="actioncluster" id="actioncluster">
     <button class="btn" id="bulkPic">📸 แนบรูปที่แคป (เลือกได้ทีละหลายรูป)</button>
-    <button class="btn danger" id="btnResetAll" style="display:none">🔄 รีเซ็ตสถานะชุดนี้ (AM + Platform ที่เลือกอยู่)</button>
   </div>
 
   <div class="collapse-box" id="moreBoxWrap">
@@ -713,6 +723,26 @@ function chipRow(el,arr,k,colorFn){
 }
 function pjColorFn(v,i){const c=PJ_COLORS[i%PJ_COLORS.length];return c;}
 
+function mbPapeDupHint(){
+  if(PJ[sel.pj] !== "MB PAPE"){
+    $("amHint").style.display = "none";
+    $("amHint").textContent = "";
+    return;
+  }
+  const amFilter = AM[sel.am];
+  const dupes = items.filter(x => x.pj === "MB PAPE" && (amFilter === "ทั้งหมด" || x.am === amFilter) && x.pid && items.some(y => y.pj === "Mega Momday" && y.url === x.url));
+  if(!dupes.length){
+    $("amHint").style.display = "none";
+    $("amHint").textContent = "";
+    return;
+  }
+  const pids = dupes.map(x => x.pid).filter(Boolean).slice(0,3);
+  const extra = dupes.length - pids.length;
+  const text = `Mega Momday duplicated: ${dupes.length} PID${dupes.length>1?'s':''}${pids.length ? ` · ${pids.join(", ")}${extra>0 ? ", ..." : ""}` : ""}`;
+  $("amHint").textContent = text;
+  $("amHint").style.display = "block";
+}
+
 function crossAmBadge(x){
   const k=sKey(x);
   // MB PAPE: informational source tag only, never a warning. If the same URL was uploaded
@@ -746,7 +776,7 @@ function crossAmBadge(x){
 }
 
 function render(){
-  chipRow($("cPj"),PJ,"pj",pjColorFn);chipRow($("cAm"),AM,"am");chipRow($("cPf"),PF,"pf",pfColor);
+  chipRow($("cPj"),PJ,"pj",pjColorFn);chipRow($("cAm"),AM,"am");chipRow($("cPf"),PF,"pf",pfColor);mbPapeDupHint();
   const isMM=PJ[sel.pj]==="Mega Momday";
   $("laySlot").style.display=isMM?"block":"none";
   if(isMM){
@@ -773,11 +803,13 @@ function render(){
   $("pb").style.width=(it.length?nc/it.length*100:0)+"%";
   $("po").style.width=(it.length?no/it.length*100:0)+"%";
   $("st").textContent=openOnly?"":(no?no+" รายการของหมด":"");
+  $("c").style.color = openOnly ? "var(--c2)" : "var(--gold)";
 
   $("board").innerHTML=it.map((x,i)=>{
-    const cls=openOnly?(isOpened(x)?'d':''):`${isCap(x)?'d':''} ${isOos(x)?'o':''}`;
+    const cls=openOnly?(isOpened(x)?'opened':''):`${isCap(x)?'d':''} ${isOos(x)?'o':''}`;
     const statusClass = isUploaded(x) ? 'u' : (isCap(x) ? 'd' : (isOos(x) ? 'o' : ''));
-    return `<div class="cell ${statusClass} ${i===cur?'n':''}" data-j="${i}">${it[i].seq||i+1}</div>`;}).join("");
+    const finalClass = openOnly ? cls : statusClass;
+    return `<div class="cell ${finalClass} ${i===cur?'n':''}" data-j="${i}">${it[i].seq||i+1}</div>`;}).join("");
 
   const nx=it.findIndex(x=>!isDone(x));
   if(!it.length){
@@ -793,18 +825,17 @@ function render(){
       <a href="${it[nx].url}" target="_blank" rel="noopener" data-o="${nx}">เปิด</a></div>${decideRow}`;
   }
 
-  const hasDone = openOnly ? it.some(x => isOpened(x)) : it.some(x => isDone(x)&&!isUploaded(x));
-  $("btnResetAll").textContent=openOnly
-    ? "🔄 รีเซ็ตสถานะการเปิดทั้งหมด (D9 Ops PAPE)"
-    : "🔄 รีเซ็ตสถานะชุดนี้ (AM + Platform ที่เลือกอยู่)";
-  $("btnResetAll").style.display = hasDone ? "block" : "none";
+  const hasCap = !openOnly && it.some(x => isCap(x) && !isUploaded(x));
+  const hasOos = !openOnly && it.some(x => isOos(x) && !isUploaded(x));
+  $("clearCapBtn").style.display = hasCap ? "inline-flex" : "none";
+  $("clearOosBtn").style.display = hasOos ? "inline-flex" : "none";
   $("pos").textContent=it.length?`#${Math.min(cur+1,it.length)} / ${it.length}`:"—";
 
   const rows=it.map((x,i)=>{
     if(openOnly){
       const opened=isOpened(x),ts=me.opened[openKey(x)];
       if(filter==="todo"&&opened)return"";if(filter==="done"&&!opened)return"";
-      return `<div class="item ${opened?'d':''} ${i===cur?'cur':''}" id="it${i}">
+      return `<div class="item ${opened?'opened':''} ${i===cur?'cur':''}" id="it${i}">
         <div class="nums"><b>${x.seq||i+1}</b>${x.no?`<s>No.${x.no}</s>`:""}</div>
         <div class="mid">
           <div class="nm">${x.name||"(ไม่มีชื่อสินค้า)"}</div>
@@ -851,10 +882,35 @@ function goto(i){const it=curList();if(!it.length)return;
   cur=Math.max(0,Math.min(i,it.length-1));render();
   const el=$("it"+cur);if(el)el.scrollIntoView({behavior:"smooth",block:"center"});}
 
+async function clearVisibleStatusByType(type){
+  const it=curList();
+  const pooled=[];
+  it.forEach(x => {
+    const isCapRow = !!isCap(x);
+    const isOosRow = !!isOos(x);
+    if (type === "cap" && !isCapRow) return;
+    if (type === "oos" && !isOosRow) return;
+    if (isUploaded(x)) return;
+    clearLocalStatusForItem(x);
+    pooled.push(pingLog(x, "cleared"));
+  });
+  if(!pooled.length){
+    toast(type === "cap" ? "ไม่มีรายการมีของให้ล้าง" : "ไม่มีรายการของหมดให้ล้าง");
+    return;
+  }
+  saveMe();
+  await Promise.all(pooled);
+  await loadServerStatus();
+  render();
+  toast(type === "cap" ? "ล้างสถานะมีของแล้ว" : "ล้างสถานะของหมดแล้ว");
+}
+
 $("prev").onclick=()=>goto(cur-1);
 $("nextBtn").onclick=()=>goto(cur+1);
 $("refresh").onclick=()=>{checkDailyReset();pull(true);};
 $("refresh2").onclick=()=>{checkDailyReset();pull(true);};
+$("clearCapBtn").onclick=()=>clearVisibleStatusByType("cap");
+$("clearOosBtn").onclick=()=>clearVisibleStatusByType("oos");
 
 document.addEventListener("click",async e=>{
   const ch=e.target.closest(".chip");
@@ -888,48 +944,6 @@ if(o){
     return;
   }
 
-  const rst=e.target.closest("#btnResetAll");
-  if(rst){
-    if(!confirm("รีเซ็ตสถานะเฉพาะชุดที่กำลังดูอยู่ตอนนี้? (รูปที่แนบในชุดนี้จะถูกลบออก)"))return;
-    // Reset exactly the visible screen: selected Project + AM + Platform (+ slot where applicable).
-    // Important: uploaded rows are intentionally kept as irreversible proof of success, while
-    // every non-uploaded local state for the visible slice is fully cleared.
-    const it=curList();
-    const clears=[];
-    const skippedUploaded=[];
-    it.forEach(x => {
-      if(isUploaded(x)){
-        skippedUploaded.push(x);
-        return;
-      }
-      clearLocalStatusForItem(x);
-      clears.push(pingLog(x, "cleared")); // แจ้งเครื่องอื่นว่ารายการนี้ถูกล้างแล้ว
-    });
-    const overlay=$("uploadOverlay"), title=overlay.querySelector(".up-title"), icon=overlay.querySelector(".up-icon");
-    overlay.classList.add("on");
-    icon.textContent="🔄";
-    title.textContent="กำลังรีเซ็ตสถานะทุกเครื่อง";
-    $("uploadBarInner").style.width="35%";
-    $("uploadText").textContent="กำลังส่งสถานะล้างข้อมูล… กรุณารอ";
-    saveMe();
-    await Promise.all(clears);
-    $("uploadBarInner").style.width="75%";
-    $("uploadText").textContent="กำลังตรวจสอบสถานะกลาง… กรุณารอ";
-    const synced=await loadServerStatus();
-    $("uploadBarInner").style.width="100%";
-    $("uploadText").textContent=synced?"รีเซ็ตเสร็จแล้ว":"ตรวจสอบไม่สำเร็จ กรุณากดอัปเดตลิสต์อีกครั้ง";
-    setTimeout(()=>{
-      overlay.classList.remove("on");
-      icon.textContent="🚀";
-      title.textContent="กำลังส่งรูปเข้า Google Drive";
-    },900);
-    if(synced){
-      const suffix=skippedUploaded.length?` (${skippedUploaded.length} รายการอัปโหลดแล้วจึงไม่รีเซ็ต)`:"";
-      toast("รีเซ็ตสถานะทุกเครื่องแล้ว"+suffix);
-    }
-    else toast("รีเซ็ตแล้ว แต่ตรวจสอบเซิร์ฟเวอร์ไม่สำเร็จ");
-    return;
-  }
 });
 
 /* ---------------- Photo attach (Gate 1: sequential match) ---------------- */
