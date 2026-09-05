@@ -650,9 +650,18 @@ function syncAllFromServer() {
         delete me.cap[k]; delete me.oos[k]; delete me.ts[k];
       }
       changed = true;
-    } else if (me.autoSame && me.autoSame[k]) { // กรณีโดนสั่ง Clear จากเครื่องอื่น
-      delete me.cap[k]; delete me.oos[k]; delete me.uploaded[uk]; delete me.opened[openKey(x)];
-      changed = true;
+    } else {
+      // If the server log no longer contains this item's action, the browser must also drop
+      // the stale uploaded flag; otherwise the front-end stays permanently marked even though
+      // the log row was deleted or reset. This covers upload-only stale state and accidental row removal.
+      if (me.uploaded[uk]) {
+        clearUploadedStatusForItem(x);
+        changed = true;
+      }
+      if (me.autoSame && me.autoSame[k]) {
+        delete me.cap[k]; delete me.oos[k]; delete me.uploaded[uk]; delete me.opened[openKey(x)];
+        changed = true;
+      }
     }
     // Mirror uploaded source-project items into Mega Momday once, if matched.
     if(x.pj==="Mega Momday"&&!me.mmFalseMatch[x.url]){
@@ -726,6 +735,13 @@ function clearLocalStatusForItem(x){
   delete me.opened[openKey(x)];
   delete me.uploaded[uk]; delete me.uploadedFile[uk];
   delete me.mmFalseMatch[x.url];
+  delete PIC[k];
+  try { if (typeof picDel === "function") picDel(k); } catch (e) {}
+}
+function clearUploadedStatusForItem(x){
+  const k=sKey(x), uk=uKey(x);
+  delete me.cap[k]; delete me.oos[k]; delete me.ts[k]; delete me.reviewed[k]; delete me.autoSame[k];
+  delete me.uploaded[uk]; delete me.uploadedFile[uk];
   delete PIC[k];
   try { if (typeof picDel === "function") picDel(k); } catch (e) {}
 }
@@ -1449,6 +1465,30 @@ if(cached){build(cached);render();}
 pull(false);
 // Keep status changes from other phones visible without requiring a manual refresh.
 setInterval(()=>{loadServerStatus();},15000);
+
+window.resetUploadedStatus = function(target){
+  const list = typeof target === "string"
+    ? items.filter(x => x.url === target)
+    : (Array.isArray(target) ? target : items);
+  let count = 0;
+  list.forEach(x => {
+    if (!me.uploaded[uKey(x)]) return;
+    clearUploadedStatusForItem(x);
+    count += 1;
+  });
+  saveMe();
+  render();
+  return { cleared: count };
+};
+
+window.resetCurrentUploaded = function(){
+  const item = curList()[cur] || null;
+  if (!item) return { cleared: 0 };
+  const before = !!me.uploaded[uKey(item)];
+  if (before) clearUploadedStatusForItem(item);
+  saveMe(); render();
+  return { cleared: before ? 1 : 0 };
+};
 </script>
 </body>
 </html>
