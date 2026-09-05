@@ -97,20 +97,25 @@
   .bar i{height:100%;background:var(--done);width:0;transition:width .25s}
   .bar u{height:100%;background:var(--oos);width:0;transition:width .25s}
 
-  .board{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;margin:12px 0}
+  .board{display:flex;flex-direction:column;gap:10px;margin:12px 0}
+  .board-group{display:flex;flex-direction:column;gap:6px}
+  .board-group-title{display:inline-flex;align-self:flex-start;padding:6px 10px;border-radius:999px;
+                    background:rgba(28,168,220,.1);color:#0D6E8A;border:1px solid rgba(28,168,220,.25);
+                    font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
+  .board-mini{display:grid;grid-template-columns:repeat(8,1fr);gap:4px}
   .cell{position:relative;aspect-ratio:1;border:1px solid rgba(255,129,72,.3);background:var(--card);border-radius:8px;
         font-family:var(--mono);font-size:12px;font-weight:700;color:var(--muted);
         display:flex;align-items:center;justify-content:center;cursor:pointer}
-  .cell .x-clear{position:absolute;top:1px;right:2px;width:14px;height:14px;border-radius:50%;
-                background:rgba(229,62,62,.12);color:var(--bad);font-size:10px;font-weight:900;
-                display:none;align-items:center;justify-content:center;line-height:1}
-  .cell:hover .x-clear{display:flex}
+  .cell .x-clear{position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;
+                background:#fff;border:2px solid var(--bad);color:var(--bad);font-size:13px;font-weight:900;
+                display:none;align-items:center;justify-content:center;line-height:1;box-shadow:0 2px 6px rgba(229,62,62,.22)}
+  .cell.d .x-clear,.cell.o .x-clear{display:flex}
   .cell.d{background:var(--done);border-color:var(--done);color:#fff}
   .cell.u{background:var(--uploaded);border-color:var(--uploaded);color:#fff}
   .cell.o{background:var(--oos);border-color:var(--oos);color:#fff}
   .cell.opened{background:rgba(28,168,220,.18);border-color:var(--c2);color:#0E5D7A}
-  .cell.opened.n{background:var(--c2);border-color:var(--c2);color:#fff;box-shadow:0 0 0 2px rgba(28,168,220,.4)}
-  .cell.n{border-color:var(--next);color:var(--next);box-shadow:0 0 0 2px rgba(28,168,220,.4)}
+  .cell.opened.n{background:rgba(28,168,220,.18);border-color:#111;color:#111;box-shadow:0 0 0 2px rgba(17,17,17,.18)}
+  .cell.n{border-color:#111;color:#111;box-shadow:0 0 0 2px rgba(17,17,17,.18)}
 
   .next{background:var(--card);border-radius:16px;padding:16px;margin-bottom:14px;
         border:2px solid var(--gold);box-shadow:0 8px 24px rgba(255,129,72,.18)}
@@ -157,7 +162,7 @@
   .item.u{background:var(--uploadedbg);border-color:rgba(37,99,235,.38)}
   .item.o{background:var(--oosbg);border-color:rgba(245,101,101,.4)}
   .item.opened{background:var(--c2b);border-color:rgba(28,168,220,.45)}
-  .item.cur{border-color:var(--next);box-shadow:0 0 0 2px rgba(28,168,220,.2)}
+  .item.cur{border-color:#111;box-shadow:0 0 0 2px rgba(17,17,17,.18)}
   .nums{text-align:right}
   .nums b{font-family:var(--mono);font-size:18px;font-weight:800;display:block;line-height:1}
   .nums s{font-family:var(--mono);font-size:11px;color:var(--muted);text-decoration:none;display:block;margin-top:2px}
@@ -265,10 +270,6 @@
   <div class="head">
     <div class="count"><b id="c">0</b><span id="tot">/ 0</span>
       <button class="head-refresh" id="refresh2">↻ อัปเดตลิสต์ก่อนเริ่ม Capture</button>
-      <div class="count-tools">
-        <button class="head-reset" id="clearCapBtn" style="display:none">ล้างมีของ</button>
-        <button class="head-reset danger" id="clearOosBtn" style="display:none">ล้างของหมด</button>
-      </div>
       <em id="st"></em></div>
     <div class="bar"><i id="pb"></i><u id="po"></u></div>
   </div>
@@ -727,6 +728,15 @@ function chipRow(el,arr,k,colorFn){
     return `<div class="chip ${on?'on':''}" data-k="${k}" data-i="${i}"${style}>${v}<small>${n}</small></div>`;}).join("");
 }
 function pjColorFn(v,i){const c=PJ_COLORS[i%PJ_COLORS.length];return c;}
+function groupByAmForRender(list){
+  const groups = new Map();
+  list.forEach((x, idx) => {
+    const arr = groups.get(x.am) || [];
+    arr.push({x, idx});
+    groups.set(x.am, arr);
+  });
+  return [...groups.entries()];
+}
 
 function projectDupHint(){
   const linked = ["MB PAPE", "Mega Momday", "D9 Ops PAPE"];
@@ -742,7 +752,7 @@ function projectDupHint(){
     $("amHint").textContent = "";
     return;
   }
-  const text = `Cross-project duplicate: ${dupes.length} item${dupes.length>1?'s':''}`;
+  const text = `Cross-MM project duplicate: ${dupes.length} item${dupes.length>1?'s':''}`;
   $("amHint").textContent = text;
   $("amHint").style.display = "block";
 }
@@ -789,6 +799,10 @@ function render(){
   }
   const it=curList();
   const openOnly=isOpenOnlyProject(PJ[sel.pj]);
+  const projectColor = PJ_COLORS[(sel.pj % PJ_COLORS.length)] || PJ_COLORS[0];
+  const projectTint = projectColor.tint;
+  const projectFill = projectColor.fill;
+  const groupedByAm = AM[sel.am] === "ทั้งหมด" ? groupByAmForRender(it) : null;
   $("openOnlyNote").style.display=openOnly?"block":"none";
   // hide everything that only makes sense when there's a real flag/photo/upload flow
   $("gateArea").style.display=openOnly?"none":"block";
@@ -809,12 +823,20 @@ function render(){
   $("st").textContent=openOnly?"":(no?no+" รายการของหมด":"");
   $("c").style.color = openOnly ? "var(--c2)" : "var(--gold)";
 
-  $("board").innerHTML=it.map((x,i)=>{
+  const renderBoardCell=(x,i)=>{
     const cls=openOnly?(isOpened(x)?'opened':''):`${isCap(x)?'d':''} ${isOos(x)?'o':''}`;
     const statusClass = isUploaded(x) ? 'u' : (isCap(x) ? 'd' : (isOos(x) ? 'o' : ''));
     const finalClass = openOnly ? cls : statusClass;
-    const showX = !isUploaded(x) && !openOnly ? '<span class="x-clear" data-clear="'+i+'">×</span>' : '';
-    return `<div class="cell ${finalClass} ${i===cur?'n':''}" data-j="${i}">${showX}${it[i].seq||i+1}</div>`;}).join("");
+    const showX = !isUploaded(x) && (isCap(x) || isOos(x)) ? '<span class="x-clear" data-clear="'+i+'">×</span>' : '';
+    const openCardStyle = openOnly && isOpened(x) ? ` style="background:${projectTint};border-color:${projectFill};color:${projectFill};box-shadow:0 0 0 2px ${projectTint};"` : '';
+    return `<div class="cell ${finalClass} ${i===cur?'n':''}" data-j="${i}"${openCardStyle}>${showX}${x.seq||i+1}</div>`;
+  };
+  $("board").innerHTML = groupedByAm ? groupedByAm.map(([am, itemsInAm]) => `
+    <div class="board-group">
+      <div class="board-group-title">AM: ${am}</div>
+      <div class="board-mini">${itemsInAm.map(({x, idx}) => renderBoardCell(x, idx)).join("")}</div>
+    </div>
+  `).join("") : it.map((x,i)=>renderBoardCell(x,i)).join("");
 
   const nx=it.findIndex(x=>!isDone(x));
   if(!it.length){
@@ -830,17 +852,13 @@ function render(){
       <a href="${it[nx].url}" target="_blank" rel="noopener" data-o="${nx}">เปิด</a></div>${decideRow}`;
   }
 
-  const hasCap = !openOnly && it.some(x => isCap(x) && !isUploaded(x));
-  const hasOos = !openOnly && it.some(x => isOos(x) && !isUploaded(x));
-  $("clearCapBtn").style.display = hasCap ? "inline-flex" : "none";
-  $("clearOosBtn").style.display = hasOos ? "inline-flex" : "none";
   $("pos").textContent=it.length?`#${Math.min(cur+1,it.length)} / ${it.length}`:"—";
 
-  const rows=it.map((x,i)=>{
+  const renderRow=(x,i)=>{
     if(openOnly){
       const opened=isOpened(x),ts=me.opened[openKey(x)];
       if(filter==="todo"&&opened)return"";if(filter==="done"&&!opened)return"";
-      return `<div class="item ${opened?'opened':''} ${i===cur?'cur':''}" id="it${i}">
+      return `<div class="item ${opened?'opened':''} ${i===cur?'cur':''}" id="it${i}" ${opened?`style="background:${projectTint};border-color:${projectFill};"`:''}>
         <div class="nums"><b>${x.seq||i+1}</b>${x.no?`<s>No.${x.no}</s>`:""}</div>
         <div class="mid">
           <div class="nm">${x.name||"(ไม่มีชื่อสินค้า)"}</div>
@@ -863,7 +881,12 @@ function render(){
         <a class="open" href="${x.url}" target="_blank" rel="noopener" data-o="${i}">เปิด</a>
         <div class="tick" data-t="${i}">${c?"❌ ยกเลิก":"มีของ"}</div>
         <div class="oosbtn" data-s="${i}">${o?"❌ ยกเลิก":"หมด"}</div>
-      </div></div>`;}).join("");
+      </div></div>`;
+  };
+  const rows = groupedByAm ? groupedByAm.map(([am, itemsInAm]) => {
+    const body = itemsInAm.map(({x, idx}) => renderRow(x, idx)).filter(Boolean).join("");
+    return body ? `<div class="board-group"><div class="board-group-title">AM: ${am}</div>${body}</div>` : "";
+  }).join("") : it.map((x,i)=>renderRow(x,i)).join("");
   $("list").innerHTML=rows||`<div class="empty">ไม่มีรายการในตัวกรองนี้</div>`;
   $("listToggleLabel").textContent=`ดูรายการทั้งหมด (${it.length} รายการ)`;
   renderGate();
@@ -914,8 +937,6 @@ $("prev").onclick=()=>goto(cur-1);
 $("nextBtn").onclick=()=>goto(cur+1);
 $("refresh").onclick=()=>{checkDailyReset();pull(true);};
 $("refresh2").onclick=()=>{checkDailyReset();pull(true);};
-$("clearCapBtn").onclick=()=>clearVisibleStatusByType("cap");
-$("clearOosBtn").onclick=()=>clearVisibleStatusByType("oos");
 
 document.addEventListener("click",async e=>{
   const ch=e.target.closest(".chip");
