@@ -586,7 +586,7 @@ function serverCall(payload){
   return fetch(SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(payload)});
 }
 function pingLog(x,eventType){
-  serverCall({am:x.am,project:x.pj,platform:x.pf,no:x.no||"",pid:x.pid||"",url:x.url,event:eventType}).catch(()=>{});
+  return serverCall({am:x.am,project:x.pj,platform:x.pf,no:x.no||"",pid:x.pid||"",url:x.url,event:eventType}).catch(()=>null);
 }
 function pingUploaded(x,filename){
   serverCall({am:x.am,project:x.pj,platform:x.pf,no:x.no||"",pid:x.pid||"",url:x.url,event:"uploaded",file:filename||""}).catch(()=>{});
@@ -775,7 +775,7 @@ $("nextBtn").onclick=()=>goto(cur+1);
 $("refresh").onclick=()=>{checkDailyReset();pull(true);};
 $("refresh2").onclick=()=>{checkDailyReset();pull(true);};
 
-document.addEventListener("click",e=>{
+document.addEventListener("click",async e=>{
   const ch=e.target.closest(".chip");
   if(ch){sel[ch.dataset.k]=+ch.dataset.i;cur=0;extraFiles=[];render();return;}
   const o=e.target.closest("[data-o]");
@@ -811,14 +811,18 @@ if(o){
   if(rst){
     if(!confirm("รีเซ็ตสถานะเฉพาะชุดที่กำลังดูอยู่ตอนนี้? (รูปที่แนบในชุดนี้จะถูกลบออก)"))return;
     const it=curList();
+    const clears=[];
     it.forEach(x => {
   if(isUploaded(x))return;
   const k = sKey(x);
   delete me.cap[k]; delete me.oos[k]; delete me.ts[k]; delete me.opened[openKey(x)];
   delete me.reviewed[k]; picDel(k);
-  pingLog(x, "cleared"); // แจ้งเครื่องอื่นว่ารายการนี้ถูกล้างแล้ว
+  clears.push(pingLog(x, "cleared")); // แจ้งเครื่องอื่นว่ารายการนี้ถูกล้างแล้ว
 });
-    saveMe();render();toast("รีเซ็ตสถานะแล้ว");
+    saveMe();render();toast("กำลังรีเซ็ตทุกเครื่อง…");
+    await Promise.all(clears);
+    await loadServerStatus();
+    saveMe();render();toast("รีเซ็ตทุกเครื่องแล้ว");
     return;
   }
 });
