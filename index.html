@@ -826,7 +826,8 @@ function render(){
     const cls=openOnly?(isOpened(x)?'opened':''):`${isCap(x)?'d':''} ${isOos(x)?'o':''}`;
     const statusClass = isUploaded(x) ? 'u' : (isCap(x) ? 'd' : (isOos(x) ? 'o' : ''));
     const finalClass = openOnly ? cls : statusClass;
-    const showX = !isUploaded(x) && (isCap(x) || isOos(x)) ? '<span class="x-clear" data-clear="'+i+'">×</span>' : '';
+    const isOpenCardClearable = openOnly && isOpened(x) && !isUploaded(x);
+    const showX = !isUploaded(x) && (isCap(x) || isOos(x) || isOpenCardClearable) ? '<span class="x-clear" data-clear="'+i+'">×</span>' : '';
     const openCardStyle = openOnly && isOpened(x) ? ` style="background:${projectTint};border-color:${projectFill};color:${projectFill};box-shadow:0 0 0 2px ${projectTint};"` : '';
     return `<div class="cell ${finalClass} ${i===cur?'n':''}" data-j="${i}"${openCardStyle}>${showX}${it[i].seq||i+1}</div>`;}).join("");
 
