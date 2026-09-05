@@ -740,21 +740,36 @@ function groupByAmForRender(list){
 
 function projectDupHint(){
   const linked = ["MB PAPE", "Mega Momday", "D9 Ops PAPE"];
-  if(!linked.includes(PJ[sel.pj])){
+  const currentProject = PJ[sel.pj];
+  if(!linked.includes(currentProject)){
     $("amHint").style.display = "none";
     $("amHint").textContent = "";
     return;
   }
   const amFilter = AM[sel.am];
-  const dupes = items.filter(x => x.pj === PJ[sel.pj] && (amFilter === "ทั้งหมด" || x.am === amFilter) && items.some(y => y.pj !== x.pj && y.url === x.url && linked.includes(y.pj)));
-  if(!dupes.length){
+  const pfFilter = PF[sel.pf];
+  const dupes = items.filter(x =>
+    x.pj === currentProject &&
+    x.pf === pfFilter &&
+    (amFilter === "ทั้งหมด" || x.am === amFilter) &&
+    items.some(y => y.pj !== x.pj && y.url === x.url && y.pf === pfFilter && linked.includes(y.pj))
+  );
+  const uniqueUrls = [...new Set(dupes.map(x => x.url))];
+  if(!uniqueUrls.length){
     $("amHint").style.display = "none";
     $("amHint").textContent = "";
     return;
   }
-  const text = `Cross-MM project duplicate: ${dupes.length} item${dupes.length>1?'s':''}`;
+  const text = `Cross-MM project duplicate: ${uniqueUrls.length} item${uniqueUrls.length>1?'s':''}`;
   $("amHint").textContent = text;
   $("amHint").style.display = "block";
+}
+
+function mbDupHint(x){
+  if(x.pj !== "MB PAPE") return "";
+  return items.some(y => y.pj === "Mega Momday" && y.url === x.url)
+    ? '<div style="font-size:10px;color:var(--oos);font-weight:700;line-height:1.2;margin-top:4px">Duplicated with MM-Project</div>'
+    : "";
 }
 
 function crossAmBadge(x){
@@ -863,7 +878,7 @@ function render(){
     const c=isCap(x),o=isOos(x),u=isUploaded(x),ts=me.ts[sKey(x)];
     if(filter==="todo"&&(c||o))return"";if(filter==="done"&&!c&&!o)return"";
     return `<div class="item ${u?'u':''} ${c&&!u?'d':''} ${o?'o':''} ${i===cur?'cur':''}" id="it${i}">
-      <div class="nums"><b>${x.seq||i+1}</b>${x.no?`<s>No.${x.no}</s>`:""}</div>
+      <div class="nums"><b>${x.seq||i+1}</b>${x.no?`<s>No.${x.no}</s>`:""}${mbDupHint(x)}</div>
       <div class="mid">
         <div class="nm">${x.name||"(ไม่มีชื่อสินค้า)"}${o?'<span class="badge">ของหมด</span>':''}</div>
         <div class="meta"><span class="am">${x.am}</span>${x.pid?`<span class="lk">ID ${x.pid}</span>`:""}<span class="lk">${short(x.url)}</span></div>
