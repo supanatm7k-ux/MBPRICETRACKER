@@ -361,6 +361,13 @@ function fmtTS(ts){const d=new Date(ts);const dd=String(d.getDate()).padStart(2,
 const engMonths=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 function fileDateStr(){const d=new Date();return String(d.getDate()).padStart(2,"0")+"-"+engMonths[d.getMonth()];}
 function toast(m){const e=$("toast");e.textContent=m;e.classList.add("on");clearTimeout(tt);tt=setTimeout(()=>e.classList.remove("on"),2800);}
+function uploadFailureToast(item, label, err){
+  const no=item && item.no ? String(item.no) : "-";
+  const msg = err && err.message ? err.message : String(err || "upload failed");
+  const detail = msg.includes("Apps Script request failed") ? msg.replace("Apps Script request failed: ","") : msg;
+  console.error("Upload failure", {item, label, detail, err});
+  toast(`ส่งล้มเหลว: No.${no} — ${detail}`);
+}
 function loadMe(){try{const r=localStorage.getItem(KME);if(r)me=Object.assign({cap:{},oos:{},ts:{},reviewed:{},uploaded:{},uploadedFile:{},autoSame:{},mmFalseMatch:{},opened:{},lastDate:null},JSON.parse(r));}catch(e){}}
 function saveMe(){try{localStorage.setItem(KME,JSON.stringify(me));}catch(e){}}
 function todayStr(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
@@ -479,12 +486,12 @@ async function pull(showToast){
      - sameProjectStatus: same project, any AM, any real event (captured/oos/uploaded).
        "cleared" as the latest event = as if it never happened. Fully two-way: if a
        previously-synced item gets cleared later, this device un-marks it too.
-     - crossProjectMirrorIntoMegaMomday: MB PAPE → Mega Momday ONLY, one direction,
-       triggered ONLY by an actual "uploaded" event (not a bare flag). Once uploaded,
-       treated as a completed, irreversible fact — a later "cleared" in the source
-       project does NOT retract it, because the real file already reached Mega
-       Momday's folder. No popup, no time-slot question (MB PAPE only ever runs at
-       12:00) — it just happens, silently, and the badge below explains it after. */
+     - MB PAPE → Mega Momday mirror: one-way only, triggered ONLY by an actual
+       "uploaded" event (not a bare flag). Once uploaded, treated as a completed,
+       irreversible fact — a later "cleared" in the source project does NOT retract it,
+       because the real file already reached Mega Momday's folder. No popup, no time-slot
+       question (MB PAPE only ever runs at 12:00) — it just happens, silently, and the
+       badge below explains it after. */
 let serverLogRaw=[];
 async function loadServerStatus(){
   try{
@@ -494,8 +501,10 @@ async function loadServerStatus(){
     // Safari/Chrome/Node ตีความสตริงวันที่ต่างกัน ยังรองรับข้อมูลเก่าที่อาจเป็นสตริงไว้เผื่อด้วย
     serverLogRaw=rows.slice(1).map(r=>{
       const ts=(typeof r[0]==="number"?r[0]:new Date(r[0]).getTime());
-      const slot=(r[8]||slotFromTs(ts));
-      return {ts,am:r[1],project:r[2],platform:r[3],no:r[4]||"",pid:r[5]||"",url:r[6],event:r[7],slot};
+      const rawSlot=r[8];
+      const file = typeof r[9]==="string" ? r[9] : (r[9]||"");
+      const slot = normalizeSlot(rawSlot) || slotFromFile(file) || slotFromTs(ts);
+      return {ts,am:r[1],project:r[2],platform:r[3],no:r[4]||"",pid:r[5]||"",url:r[6],event:r[7],slot,file};
     });
     syncAllFromServer();
     render();
@@ -510,16 +519,32 @@ function isTodayTs(ts) {
          d.getMonth() === now.getMonth() && 
          d.getFullYear() === now.getFullYear();
 }
+function normalizeSlot(raw){
+  if(typeof raw !== "string") return null;
+  const s=raw.trim();
+  if(s==="12:00"||s==="20:00") return s;
+  if(s==="12-00"||s==="20-00") return s.replace("-",":");
+  return null;
+}
+function slotFromFile(fileName){
+  if(typeof fileName !== "string") return null;
+  const m=fileName.match(/(?:^|[_\-\. ])(12|20)[-_](00)(?:[_\-\. ]|$)/i);
+  if(!m) return null;
+  return `${m[1]}:${m[2]}`;
+}
 function slotFromTs(ts){
   const d=new Date(ts);if(Number.isNaN(d.getTime()))return null;
   const total=d.getHours()*60 + d.getMinutes();
-  if(total >= 20*60+1)return "20:00";
-  if(total >= 12*60+1)return "12:00";
+  if(total >= 20*60)return "20:00";
+  if(total >= 12*60)return "12:00";
   return null;
 }
 function matchSlotForStatus(e, slotName){
   if(!slotName)return true;
-  if(e.slot) return e.slot === slotName;
+  const fileSlot = slotFromFile(e.file);
+  if(fileSlot) return fileSlot === slotName;
+  const explicit = normalizeSlot(e.slot);
+  if(explicit) return explicit === slotName;
   const derived=slotFromTs(e.ts);
   return derived === slotName;
 }
@@ -608,8 +633,24 @@ function syncAllFromServer() {
 }
 
 /* ---------------- Server calls — ONE unified JSON transport for everything ---------------- */
+async function safeJsonResponse(res){
+  const text=await res.text();
+  if(!text) return {status:"error", httpStatus:res.status, reason:"empty response"};
+  try{return JSON.parse(text);}catch(e){
+    console.error("Non-JSON Apps Script response", {status:res.status, snippet:text.slice(0,500)});
+    return {status:"error", httpStatus:res.status, reason:"non-json response", raw:text.slice(0,500)};
+  }
+}
 function serverCall(payload){
-  return fetch(SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(payload)});
+  return fetch(SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(payload),cache:"no-store"})
+    .then(async res=>{
+      const result=await safeJsonResponse(res);
+      if(!res.ok || result?.status !== "success"){
+        const reason = result?.reason || result?.error || `HTTP ${res.status}`;
+        throw new Error(`Apps Script request failed: ${reason}`);
+      }
+      return result;
+    });
 }
 function pingLog(x,eventType){
   const slot=x.pj==="Mega Momday"?TIME_SLOTS[sel.slot||0]:"";
@@ -668,19 +709,17 @@ function crossAmBadge(x){
       return `<div style="font-size:11px;color:var(--c2);font-weight:700;margin-top:4px;background:var(--c2b);padding:4px 8px;border-radius:6px;display:inline-block">✅ ยืนยันเสร็จแล้ว — ${label}โดย ${st.am} (${st.project}) — ${fmtTS(st.ts)}</div>`;
     }
   }
-  // Case B: Mega Momday item auto-mirrored in from another project — confirm + offer undo,
-  // since this happened silently with no popup (per design: zero taps for the normal case).
+  // Case B: Mega Momday item mirror from MB PAPE — one-way only, confirmed silently.
   if(x.pj==="Mega Momday"&&!me.mmFalseMatch[x.url]){
     const mirror=crossProjectMirrorInfo(x.url);
     if(mirror){
       return `<div style="font-size:11px;color:var(--c2);font-weight:700;margin-top:4px;background:var(--c2b);padding:4px 8px;border-radius:6px;display:inline-block">
-        ✅ sync อัตโนมัติจาก ${mirror.am} (${mirror.project}) — ${fmtTS(mirror.ts)}
+        ✅ สถานะอัปโหลดจาก ${mirror.am} (${mirror.project}) → Mega Momday — ${fmtTS(mirror.ts)}
         <span data-notsame="${x.url}" style="text-decoration:underline;cursor:pointer;margin-left:4px">ไม่ใช่รายการเดียวกัน?</span>
       </div>`;
     }
   }
-  // Case C: reverse direction (Mega Momday done first, this is some other project) — no
-  // automatic mirror exists for this direction, so just warn; nothing gets auto-marked done.
+  // Case C: Mega Momday already uploaded, but this is another project — no auto-mirror back.
   if(x.pj!=="Mega Momday"&&x.pj!==D9_PROJECT){
     const mm=mmCounterpart(x.url);
     if(mm){
@@ -943,11 +982,11 @@ function updateDriveBtnState(){
 
 /* ---------------- Submit to Drive — real per-file progress, proven transport ---------------- */
 async function mirrorToMegaMomday(x){
-  // Option B: zero taps for the normal case. If this link also exists in Mega Momday,
-  // deliver the same photo into Mega Momday's own folder automatically — always slot
-  // 12:00 (MB PAPE, the only source project, only ever runs at 12:00 — no real question
-  // to ask). AM sees a dismissible note afterward (crossAmBadge) in case it's genuinely
-  // the wrong match — no popup blocks the upload itself. Returns true if it sent a file.
+  // One-way mirror: if this link also exists in Mega Momday, deliver the same photo into
+  // Mega Momday's own folder automatically — always slot 12:00. This is a MB PAPE →
+  // Mega Momday transfer only; there is no reverse sync back to MB PAPE. AM sees a
+  // dismissible note afterward (crossAmBadge) in case it's genuinely the wrong match —
+  // no popup blocks the upload itself. Returns true if it sent a file.
   if(x.pj!=="MB PAPE"||me.mmFalseMatch[x.url])return false;
   const mm=mmCounterpart(x.url);
   if(!mm)return false;
@@ -958,12 +997,11 @@ async function mirrorToMegaMomday(x){
   const mmPidPart=mm.pid?safe(mm.pid):"NoID";
   const mmFname=`${fileDateStr()}_${slotFile(mmSlot)}_${safe(mm.am)}_${mm.no||"NA"}_${mmPidPart}_${safe(mm.pf)}.jpg`;
   try{
-    const res2=await serverCall({
+    const result2=await serverCall({
       amName:mm.am, project:"Mega Momday", platform:mm.pf, folderId:mmFolderId, dateFolder:fileDateStr(),
       files:[{name:mmFname,mimeType:"image/jpeg",base64:PIC[sKey(x)].split("base64,")[1],
               no:mm.no||"",pid:mm.pid||"",url:mm.url}], slot:mmSlot
     });
-    const result2=await res2.json();
     if(result2.status==="success"){
       me.uploaded[uKey(mm,mmSlot)]=1;me.uploadedFile[uKey(mm,mmSlot)]=mmFname;
       const k=sKey(mm,mmSlot);
@@ -973,7 +1011,10 @@ async function mirrorToMegaMomday(x){
       me.ts[k]=me.ts[sKey(x)];
       return true;
     }
-  }catch(err2){console.error(err2);}
+  }catch(err2){
+    uploadFailureToast(mm, mmFname, err2);
+    console.error("Mega Momday mirror upload failed", err2);
+  }
   return false;
 }
 
@@ -1021,13 +1062,17 @@ $("driveBtn").onclick=async()=>{
               no:x.no||"",pid:x.pid||"",url:x.url}], slot:slotLabel
     };
     try{
-      const res=await serverCall(payload);
-      const result=await res.json();
+      const result=await serverCall(payload);
       if(result.status==="success"){
         me.uploaded[uKey(x)]=1;me.uploadedFile[uKey(x)]=fname;ok++;
         if(await mirrorToMegaMomday(x))mmOk++;
+      } else {
+        console.error("Drive upload rejected by Apps Script", {result, x, fname});
       }
-    }catch(err){console.error(err);}
+    }catch(err){
+      uploadFailureToast(x, fname, err);
+      console.error("Drive upload failed silently before logging", {err, x, fname});
+    }
   }
   $("uploadBarInner").style.width="100%";
   $("uploadText").textContent="เสร็จสิ้น 100%";
