@@ -18,6 +18,7 @@
     --c2:#1CA8DC; --c2b:rgba(28,168,220,.1);
     --c3:#9B5DE5; --c3b:rgba(155,93,229,.1);
     --done:#48BB78; --donebg:rgba(72,187,120,.12);
+    --uploaded:#2563EB; --uploadedbg:rgba(37,99,235,.12);
     --next:#1CA8DC; --oos:#F56565; --oosbg:rgba(245,101,101,.12); --bad:#E53E3E;
     --mono:"Poppins",ui-monospace,monospace;
     --sans:"Poppins","Sarabun",-apple-system,sans-serif;
@@ -96,6 +97,7 @@
         font-family:var(--mono);font-size:12px;font-weight:700;color:var(--muted);
         display:flex;align-items:center;justify-content:center;cursor:pointer}
   .cell.d{background:var(--done);border-color:var(--done);color:#fff}
+  .cell.u{background:var(--uploaded);border-color:var(--uploaded);color:#fff}
   .cell.o{background:var(--oos);border-color:var(--oos);color:#fff}
   .cell.n{border-color:var(--next);color:var(--next);box-shadow:0 0 0 2px rgba(28,168,220,.4)}
 
@@ -141,6 +143,7 @@
   .item{background:var(--card);border:1px solid rgba(255,129,72,.3);border-radius:12px;margin-bottom:8px;
         display:grid;grid-template-columns:44px 1fr auto;gap:9px;align-items:center;padding:10px}
   .item.d{background:var(--donebg);border-color:rgba(72,187,120,.4)}
+  .item.u{background:var(--uploadedbg);border-color:rgba(37,99,235,.38)}
   .item.o{background:var(--oosbg);border-color:rgba(245,101,101,.4)}
   .item.cur{border-color:var(--next);box-shadow:0 0 0 2px rgba(28,168,220,.2)}
   .nums{text-align:right}
@@ -152,7 +155,7 @@
   .am{background:var(--c2b);color:#0987A0;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:700}
   .lk{font-size:12px;color:var(--muted);font-family:var(--mono)}
   .ts{font-size:12px;font-family:var(--mono);margin-top:4px;font-weight:600}
-  .ts.cap{color:#38A169} .ts.oos{color:#C53030}
+  .ts.cap{color:#38A169} .ts.uploaded{color:var(--uploaded)} .ts.oos{color:#C53030}
   .item.d .nm,.item.o .nm{opacity:.6}
   .badge{display:inline-block;background:var(--oos);color:#fff;border-radius:6px;padding:2px 8px;font-size:12px;margin-left:6px;font-weight:700}
   .acts{display:flex;gap:6px}
@@ -162,6 +165,7 @@
                 background:var(--card);display:flex;align-items:center;justify-content:center;
                 font-size:12px;font-weight:700;color:var(--muted);cursor:pointer;text-align:center}
   .item.d .tick{border-color:var(--done);color:var(--done)}
+  .item.u .tick{border-color:var(--uploaded);color:var(--uploaded)}
   .item.o .oosbtn{border-color:var(--oos);color:var(--oos)}
   .empty{text-align:center;color:var(--muted);font-size:14px;padding:26px 10px;line-height:1.7;font-weight:600}
 
@@ -686,6 +690,7 @@ function clearLocalStatusForItem(x){
   delete me.cap[k]; delete me.oos[k]; delete me.ts[k]; delete me.reviewed[k]; delete me.autoSame[k];
   delete me.opened[openKey(x)];
   delete me.uploaded[uk]; delete me.uploadedFile[uk];
+  delete me.mmFalseMatch[x.url];
   delete PIC[k];
   try { if (typeof picDel === "function") picDel(k); } catch (e) {}
 }
@@ -710,6 +715,15 @@ function pjColorFn(v,i){const c=PJ_COLORS[i%PJ_COLORS.length];return c;}
 
 function crossAmBadge(x){
   const k=sKey(x);
+  // MB PAPE: informational source tag only, never a warning. If the same URL was uploaded
+  // by another AM/project, show who and when without treating it as a failure.
+  if(x.pj === "MB PAPE"){
+    const st = sameProjectStatus(x.pj, x.url);
+    if(st && st.event === "uploaded"){
+      return `<div style="font-size:11px;color:var(--uploaded);font-weight:700;margin-top:4px;background:var(--uploadedbg);padding:4px 8px;border-radius:6px;display:inline-block">📤 อัปโหลดโดย ${st.am} — ${fmtTS(st.ts)}</div>`;
+    }
+    return "";
+  }
   // Case A: same-project cross-AM, already auto-synced by syncAllFromServer — confirm who.
   if(me.autoSame[k]){
     const st=sameProjectStatus(x.pj,x.url);
@@ -718,24 +732,14 @@ function crossAmBadge(x){
       return `<div style="font-size:11px;color:var(--c2);font-weight:700;margin-top:4px;background:var(--c2b);padding:4px 8px;border-radius:6px;display:inline-block">✅ ยืนยันเสร็จแล้ว — ${label}โดย ${st.am} (${st.project}) — ${fmtTS(st.ts)}</div>`;
     }
   }
-  // Case B: Mega Momday item mirror from MB PAPE — one-way only, confirmed silently.
+  // Case B: Mega Momday item mirror from MB PAPE — one-way only, confirmed softly.
   if(x.pj==="Mega Momday"&&!me.mmFalseMatch[x.url]){
     const mirror=crossProjectMirrorInfo(x.url);
     if(mirror){
-      return `<div style="font-size:11px;color:var(--c2);font-weight:700;margin-top:4px;background:var(--c2b);padding:4px 8px;border-radius:6px;display:inline-block">
-        ✅ สถานะอัปโหลดจาก ${mirror.am} (${mirror.project}) → Mega Momday — ${fmtTS(mirror.ts)}
+      return `<div style="font-size:11px;color:var(--uploaded);font-weight:700;margin-top:4px;background:var(--uploadedbg);padding:4px 8px;border-radius:6px;display:inline-block">
+        🔄 อัปโหลดจาก ${mirror.am} (${mirror.project}) → Mega Momday — ${fmtTS(mirror.ts)}
         <span data-notsame="${x.url}" style="text-decoration:underline;cursor:pointer;margin-left:4px">ไม่ใช่รายการเดียวกัน?</span>
       </div>`;
-    }
-  }
-  // Case C: Mega Momday already uploaded, but this is another project — no auto-mirror back.
-  if(x.pj!=="Mega Momday"&&x.pj!==D9_PROJECT){
-    const mm=mmCounterpart(x.url);
-    if(mm){
-      const mmStatus=sameProjectStatus("Mega Momday",x.url);
-      if(mmStatus&&mmStatus.event==="uploaded"){
-        return `<div style="font-size:11px;color:#C53030;font-weight:700;margin-top:4px;background:rgba(229,62,62,.08);padding:4px 8px;border-radius:6px;display:inline-block">⚠️ โปรดตรวจสอบ — อัปโหลดใน Mega Momday แล้วโดย ${mmStatus.am} — ${fmtTS(mmStatus.ts)}</div>`;
-      }
     }
   }
   return "";
@@ -772,7 +776,8 @@ function render(){
 
   $("board").innerHTML=it.map((x,i)=>{
     const cls=openOnly?(isOpened(x)?'d':''):`${isCap(x)?'d':''} ${isOos(x)?'o':''}`;
-    return `<div class="cell ${cls} ${i===cur?'n':''}" data-j="${i}">${it[i].seq||i+1}</div>`;}).join("");
+    const statusClass = isUploaded(x) ? 'u' : (isCap(x) ? 'd' : (isOos(x) ? 'o' : ''));
+    return `<div class="cell ${statusClass} ${i===cur?'n':''}" data-j="${i}">${it[i].seq||i+1}</div>`;}).join("");
 
   const nx=it.findIndex(x=>!isDone(x));
   if(!it.length){
@@ -808,14 +813,14 @@ function render(){
         </div>
         <div class="acts"><a class="open" href="${x.url}" target="_blank" rel="noopener" data-o="${i}">${opened?"✓ เปิดแล้ว":"เปิด"}</a></div></div>`;
     }
-    const c=isCap(x),o=isOos(x),ts=me.ts[sKey(x)];
+    const c=isCap(x),o=isOos(x),u=isUploaded(x),ts=me.ts[sKey(x)];
     if(filter==="todo"&&(c||o))return"";if(filter==="done"&&!c&&!o)return"";
-    return `<div class="item ${c?'d':''} ${o?'o':''} ${i===cur?'cur':''}" id="it${i}">
+    return `<div class="item ${u?'u':''} ${c&&!u?'d':''} ${o?'o':''} ${i===cur?'cur':''}" id="it${i}">
       <div class="nums"><b>${x.seq||i+1}</b>${x.no?`<s>No.${x.no}</s>`:""}</div>
       <div class="mid">
         <div class="nm">${x.name||"(ไม่มีชื่อสินค้า)"}${o?'<span class="badge">ของหมด</span>':''}</div>
         <div class="meta"><span class="am">${x.am}</span>${x.pid?`<span class="lk">ID ${x.pid}</span>`:""}<span class="lk">${short(x.url)}</span></div>
-        ${ts?`<div class="ts ${c?'cap':'oos'}">${fmtTS(ts)}</div>`:""}
+        ${ts?`<div class="ts ${u?'uploaded':(c?'cap':'oos')}">${fmtTS(ts)}</div>`:""}
         ${crossAmBadge(x)}
       </div>
       <div class="acts">
