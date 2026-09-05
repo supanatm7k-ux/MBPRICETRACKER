@@ -802,7 +802,6 @@ function render(){
   const projectColor = PJ_COLORS[(sel.pj % PJ_COLORS.length)] || PJ_COLORS[0];
   const projectTint = projectColor.tint;
   const projectFill = projectColor.fill;
-  const groupedByAm = AM[sel.am] === "ทั้งหมด" ? groupByAmForRender(it) : null;
   $("openOnlyNote").style.display=openOnly?"block":"none";
   // hide everything that only makes sense when there's a real flag/photo/upload flow
   $("gateArea").style.display=openOnly?"none":"block";
@@ -823,20 +822,13 @@ function render(){
   $("st").textContent=openOnly?"":(no?no+" รายการของหมด":"");
   $("c").style.color = openOnly ? "var(--c2)" : "var(--gold)";
 
-  const renderBoardCell=(x,i)=>{
+  $("board").innerHTML=it.map((x,i)=>{
     const cls=openOnly?(isOpened(x)?'opened':''):`${isCap(x)?'d':''} ${isOos(x)?'o':''}`;
     const statusClass = isUploaded(x) ? 'u' : (isCap(x) ? 'd' : (isOos(x) ? 'o' : ''));
     const finalClass = openOnly ? cls : statusClass;
     const showX = !isUploaded(x) && (isCap(x) || isOos(x)) ? '<span class="x-clear" data-clear="'+i+'">×</span>' : '';
     const openCardStyle = openOnly && isOpened(x) ? ` style="background:${projectTint};border-color:${projectFill};color:${projectFill};box-shadow:0 0 0 2px ${projectTint};"` : '';
-    return `<div class="cell ${finalClass} ${i===cur?'n':''}" data-j="${i}"${openCardStyle}>${showX}${x.seq||i+1}</div>`;
-  };
-  $("board").innerHTML = groupedByAm ? groupedByAm.map(([am, itemsInAm]) => `
-    <div class="board-group">
-      <div class="board-group-title">AM: ${am}</div>
-      <div class="board-mini">${itemsInAm.map(({x, idx}) => renderBoardCell(x, idx)).join("")}</div>
-    </div>
-  `).join("") : it.map((x,i)=>renderBoardCell(x,i)).join("");
+    return `<div class="cell ${finalClass} ${i===cur?'n':''}" data-j="${i}"${openCardStyle}>${showX}${it[i].seq||i+1}</div>`;}).join("");
 
   const nx=it.findIndex(x=>!isDone(x));
   if(!it.length){
@@ -883,10 +875,7 @@ function render(){
         <div class="oosbtn" data-s="${i}">${o?"❌ ยกเลิก":"หมด"}</div>
       </div></div>`;
   };
-  const rows = groupedByAm ? groupedByAm.map(([am, itemsInAm]) => {
-    const body = itemsInAm.map(({x, idx}) => renderRow(x, idx)).filter(Boolean).join("");
-    return body ? `<div class="board-group"><div class="board-group-title">AM: ${am}</div>${body}</div>` : "";
-  }).join("") : it.map((x,i)=>renderRow(x,i)).join("");
+  const rows=it.map((x,i)=>renderRow(x,i)).join("");
   $("list").innerHTML=rows||`<div class="empty">ไม่มีรายการในตัวกรองนี้</div>`;
   $("listToggleLabel").textContent=`ดูรายการทั้งหมด (${it.length} รายการ)`;
   renderGate();
