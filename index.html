@@ -335,6 +335,7 @@
 const CSV="https://docs.google.com/spreadsheets/d/e/2PACX-1vTRuFTOkDoHlzFoUDIzX7BfaWpOoMw2wPjivC1YQBSnKxuc5tPKT1INOarctRezzokr3jYYsZYVI0r0/pub?output=csv";
 const SCRIPT_URL="https://script.google.com/macros/s/AKfycbz0mMTo-q3Lmt4QrystXCTM6cDszQnBOgyXmXaME4SO5TDXDaokpI6BsRcaud6wcOw/exec";
 const FOLDER_MAP={"Mega Momday":"1uP3_zzJWbngLB7RcMYcv6YeA1VGvU6Nu","MB PAPE":"175xss9IQ4H4HykhP4EHcx5JkjDiPSZkQ"};
+const D9_PROJECT="D9 Ops PAPE";
 // FINAL, LOCKED. Do not change this string ever again — changing it wipes every
 // AM's saved มีของ/หมด status on their own phone (it becomes a different localStorage key).
 // Prior drafts used cap_me_v8 / v10 / v14 at different times; none of that carries forward.
@@ -536,9 +537,9 @@ function syncAllFromServer() {
     if(isOpenOnlyProject(x.pj)){
       const latest=latestEventFor(x.pj,x.url);
       if(latest?.event==="opened"){
-        me.opened[x.url]=latest.ts;changed=true;
+        me.opened[openKey(x)]=latest.ts;changed=true;
       }else if(latest?.event==="cleared"){
-        delete me.opened[x.url];changed=true;
+        delete me.opened[openKey(x)];changed=true;
       }
       return;
     }
@@ -557,14 +558,14 @@ function syncAllFromServer() {
       } else if (st.event === "oos") {
         me.oos[k] = 1; delete me.cap[k]; me.ts[k] = st.ts;
       } else if (st.event === "captured" || st.event === "opened") {
-        if (isOpenOnlyProject(x.pj)) me.opened[x.url] = st.ts;
+        if (isOpenOnlyProject(x.pj)) me.opened[openKey(x)] = st.ts;
         else { me.cap[k] = 1; delete me.oos[k]; me.ts[k] = st.ts; }
       } else if (st.event === "cleared") {
         delete me.cap[k]; delete me.oos[k]; delete me.ts[k];
       }
       changed = true;
     } else if (me.autoSame && me.autoSame[k]) { // กรณีโดนสั่ง Clear จากเครื่องอื่น
-      delete me.cap[k]; delete me.oos[k]; delete me.uploaded[uk]; delete me.opened[x.url];
+      delete me.cap[k]; delete me.oos[k]; delete me.uploaded[uk]; delete me.opened[openKey(x)];
       changed = true;
     }
     // Mirror uploaded source-project items into Mega Momday once, if matched.
@@ -604,7 +605,8 @@ function uKey(x,slotOverride){return x.pj==="Mega Momday"?sKey(x,slotOverride):(
 // no flag, no photo, no upload logic applies. Adding a future ad-hoc campaign like
 // this just means NOT giving it a folder; no other code needs to change.
 function isOpenOnlyProject(pj){return !FOLDER_MAP[pj];}
-const isOpened=x=>!!me.opened[x.url];
+function openKey(x){return x.pj+"@"+x.url;}
+const isOpened=x=>!!me.opened[openKey(x)];
 const isCap=x=>!!me.cap[sKey(x)], isOos=x=>!!me.oos[sKey(x)];
 const isUploaded=x=>!!me.uploaded[uKey(x)];
 const isDone=x=>isOpenOnlyProject(x.pj)?isOpened(x):(isCap(x)||isOos(x));
@@ -651,7 +653,7 @@ function crossAmBadge(x){
   }
   // Case C: reverse direction (Mega Momday done first, this is some other project) — no
   // automatic mirror exists for this direction, so just warn; nothing gets auto-marked done.
-  if(x.pj!=="Mega Momday"){
+  if(x.pj!=="Mega Momday"&&x.pj!==D9_PROJECT){
     const mm=mmCounterpart(x.url);
     if(mm){
       const mmStatus=sameProjectStatus("Mega Momday",x.url);
@@ -706,7 +708,7 @@ function render(){
     $("nextCard").innerHTML=`<div class="toprow"><div style="min-width:0;flex:1"><div class="lbl">ถัดไป · ลำดับ ${nx+1}${it[nx].no?" · No."+it[nx].no:""}</div>
         <div class="no">${it[nx].name||short(it[nx].url)}</div>
         <div class="sh">${it[nx].am}${it[nx].pid?" · ID "+it[nx].pid:""}</div>
-        ${crossAmBadge(it[nx])}</div>
+        </div>
       <a href="${it[nx].url}" target="_blank" rel="noopener" data-o="${nx}">เปิด</a></div>${decideRow}`;
   }
 
@@ -719,7 +721,7 @@ function render(){
 
   const rows=it.map((x,i)=>{
     if(openOnly){
-      const opened=isOpened(x),ts=me.opened[x.url];
+      const opened=isOpened(x),ts=me.opened[openKey(x)];
       if(filter==="todo"&&opened)return"";if(filter==="done"&&!opened)return"";
       return `<div class="item ${opened?'d':''} ${i===cur?'cur':''}" id="it${i}">
         <div class="nums"><b>${x.no||i+1}</b></div>
@@ -779,8 +781,8 @@ document.addEventListener("click",e=>{
   const o=e.target.closest("[data-o]");
 if(o){
   const idx = +o.dataset.o, item = curList()[idx];
-  if(item && isOpenOnlyProject(item.pj) && !me.opened[item.url]){
-    me.opened[item.url] = Date.now();
+  if(item && isOpenOnlyProject(item.pj) && !me.opened[openKey(item)]){
+    me.opened[openKey(item)] = Date.now();
     pingLog(item, "opened"); // ส่งไปบอกเครื่องอื่น
     saveMe();
   }
@@ -812,7 +814,7 @@ if(o){
     it.forEach(x => {
   if(isUploaded(x))return;
   const k = sKey(x);
-  delete me.cap[k]; delete me.oos[k]; delete me.ts[k]; delete me.opened[x.url];
+  delete me.cap[k]; delete me.oos[k]; delete me.ts[k]; delete me.opened[openKey(x)];
   delete me.reviewed[k]; picDel(k);
   pingLog(x, "cleared"); // แจ้งเครื่องอื่นว่ารายการนี้ถูกล้างแล้ว
 });
