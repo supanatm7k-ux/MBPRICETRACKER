@@ -163,8 +163,9 @@
   .item.o{background:var(--oosbg);border-color:rgba(245,101,101,.4)}
   .item.opened{background:var(--c2b);border-color:rgba(28,168,220,.45)}
   .item.cur{border-color:#111;box-shadow:0 0 0 2px rgba(17,17,17,.18)}
-  .nums{text-align:right}
-  .nums b{font-family:var(--mono);font-size:18px;font-weight:800;display:block;line-height:1}
+  .nums{position:relative;text-align:right;display:flex;flex-direction:column;align-items:flex-end;justify-content:center;min-height:44px}
+  .nums .dup-tag{position:absolute;top:0;left:50%;transform:translateX(-50%);padding:2px 6px;border-radius:6px;background:#fff;color:#111;border:1px solid rgba(17,17,17,.18);font-size:9px;font-weight:800;line-height:1.2;letter-spacing:.04em;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.08)}
+  .nums b{font-family:var(--mono);font-size:18px;font-weight:800;display:block;line-height:1;margin-top:12px}
   .nums s{font-family:var(--mono);font-size:11px;color:var(--muted);text-decoration:none;display:block;margin-top:2px}
   .mid{min-width:0}
   .nm{font-size:15px;font-weight:700;line-height:1.3;word-break:break-word}
@@ -786,7 +787,7 @@ function projectDupHint(){
 function mbDupHint(x){
   if(x.pj !== "MB PAPE") return "";
   return items.some(y => y.pj === "Mega Momday" && y.url === x.url)
-    ? '<span style="display:inline-block;margin-top:2px;padding:2px 6px;border-radius:6px;background:#fff;color:#111;border:1px solid rgba(17,17,17,.18);font-size:9px;font-weight:800;line-height:1.2;letter-spacing:.04em">MM Dup</span>'
+    ? '<span class="dup-tag">MM Dup</span>'
     : "";
 }
 
@@ -862,7 +863,7 @@ function render(){
     const isOpenCardClearable = openOnly && isOpened(x) && !isUploaded(x);
     const showX = !isUploaded(x) && (isCap(x) || isOos(x) || isOpenCardClearable) ? '<span class="x-clear" data-clear="'+i+'">×</span>' : '';
     const dupBadge = x.pj === "MB PAPE" && items.some(y => y.pj === "Mega Momday" && y.url === x.url)
-      ? '<div style="position:absolute;top:-8px;left:50%;transform:translateX(-50%);padding:2px 6px;border-radius:6px;background:#fff;color:#111;border:1px solid rgba(17,17,17,.18);font-size:9px;font-weight:800;line-height:1.2;letter-spacing:.04em;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.08)">MM Dup</div>'
+      ? '<div style="position:absolute;top:2px;left:50%;transform:translateX(-50%);padding:2px 6px;border-radius:6px;background:#fff;color:#111;border:1px solid rgba(17,17,17,.18);font-size:9px;font-weight:800;line-height:1.2;letter-spacing:.04em;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.08)">MM Dup</div>'
       : '';
     const openCardStyle = openOnly && isOpened(x) ? ` style="background:${projectTint};border-color:${projectFill};color:${projectFill};box-shadow:0 0 0 2px ${projectTint};"` : '';
     return `<div class="cell ${finalClass} ${i===cur?'n':''}" data-j="${i}"${openCardStyle}>${dupBadge}${showX}${it[i].seq||i+1}</div>`;}).join("");
@@ -899,7 +900,7 @@ function render(){
     const c=isCap(x),o=isOos(x),u=isUploaded(x),ts=me.ts[sKey(x)];
     if(filter==="todo"&&(c||o))return"";if(filter==="done"&&!c&&!o)return"";
     return `<div class="item ${u?'u':''} ${c&&!u?'d':''} ${o?'o':''} ${i===cur?'cur':''}" id="it${i}">
-      <div class="nums"><b>${x.seq||i+1}</b>${x.no?`<s>No.${x.no}</s>`:""}</div>
+      <div class="nums">${mbDupHint(x)}<b>${x.seq||i+1}</b>${x.no?`<s>No.${x.no}</s>`:""}</div>
       <div class="mid">
         <div class="nm">${x.name||"(ไม่มีชื่อสินค้า)"}${o?'<span class="badge">ของหมด</span>':''}</div>
         <div class="meta"><span class="am">${x.am}</span>${x.pid?`<span class="lk">ID ${x.pid}</span>`:""}<span class="lk">${short(x.url)}</span></div>
