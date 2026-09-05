@@ -366,6 +366,7 @@ function todayStr(){const d=new Date();return d.getFullYear()+"-"+String(d.getMo
 async function picClearAll(){PIC={};try{DB=DB||await idb();DB.transaction("p","readwrite").objectStore("p").clear();}catch(e){}}
 function checkDailyReset(){
   const today=todayStr();
+  if(!me.lastDate){me.lastDate=today;saveMe();return false;}
   if(me.lastDate&&me.lastDate!==today){
     me={cap:{},oos:{},ts:{},reviewed:{},uploaded:{},uploadedFile:{},autoSame:{},mmFalseMatch:{},opened:{},lastDate:today};
     picClearAll();extraFiles=[];
@@ -373,11 +374,7 @@ function checkDailyReset(){
     toast("🌅 เริ่มวันใหม่ — ล้างสถานะเมื่อวานแล้ว เริ่มเช็คใหม่");
     return true;
   }
-  if (me.lastDate && me.lastDate !== today) {
-  me = {cap:{}, oos:{}, ts:{}, reviewed:{}, uploaded:{}, uploadedFile:{}, autoSame:{}, mmFalseMatch:{}, opened:{}, lastDate:today};
-  picClearAll(); 
-  saveMe();
-  return true;
+  return false;
 }
 
 /* ---------------- Photos (IndexedDB) ---------------- */
@@ -419,11 +416,19 @@ function parseCSV(t){
 }
 function build(csv){
   const rows=parseCSV(csv);if(!rows.length)return;
-  const H=rows[0].map(h=>h.trim().toLowerCase());
-  const ix=n=>H.findIndex(h=>h.indexOf(n)===0||h===n);
-  const iNo=ix("no"), iPj=ix("project"), iAm=ix("am"), iNm=H.findIndex(h=>h.indexOf("product name")===0);
-  const iPid=ix("product id");
-  const iTT=H.findIndex(h=>h.indexOf("tiktok")===0), iSP=H.findIndex(h=>h.indexOf("shopee")===0);
+  const H=rows[0].map(h=>String(h||"").replace(/^\uFEFF/,"").trim().toLowerCase().replace(/\s+/g," "));
+  const ix=(...names)=>{
+    const exact=H.findIndex(h=>names.includes(h));
+    return exact>=0?exact:H.findIndex(h=>names.some(n=>h.indexOf(n)===0));
+  };
+  const iNo=ix("no","no.");
+  const iPj=ix("project");
+  const iAm=ix("am","account manager");
+  const iNm=ix("product name","product","contents","content");
+  const iPid=ix("product id","product_id");
+  const iTT=ix("tiktok shop product link","tiktok shop","tiktok");
+  const iSP=ix("shopee product link","shopee shop product link","shopee");
+  if([iNo,iPj,iAm,iNm].some(i=>i<0))throw new Error("sheet columns not found");
   const out=[];
   rows.slice(1).forEach(r=>{
     const pj=(r[iPj]||"").trim(), am=(r[iAm]||"").trim(), nm=(r[iNm]||"").trim();
@@ -496,13 +501,12 @@ function isTodayTs(ts) {
 function getBestStatus(pj, url) {
   let best = null;
   const evts = serverLogRaw.filter(e => e.project === pj && e.url === url && isTodayTs(e.ts));
-  // Priority 1: ถ้ามีการอัปโหลดวันนี้ ให้จบงานทันที
-  const up = evts.find(e => e.event === "uploaded");
+  // Upload is irreversible for the current day and outranks every other event.
+  const up = evts.filter(e => e.event === "uploaded").sort((a,b) => b.ts - a.ts)[0];
   if (up) return up;
-  // Priority 2: หาเหตุการณ์ล่าสุดที่ไม่ใช่การเคลียร์
+  // Without an upload, the latest captured/OOS/cleared event wins.
   evts.sort((a,b) => b.ts - a.ts);
-  const last = evts[0];
-  return (last && last.event !== "cleared") ? last : null;
+  return evts[0]||null;
 }
 function latestEventFor(project,url){
   // Only today's events count — an upload from a previous day is stale evidence for
@@ -521,14 +525,7 @@ function sameProjectStatus(project,url){
   return e;
 }
 function crossProjectMirrorInfo(url){
-  const sourceProjects=[...new Set(serverLogRaw.filter(e=>e.url===url&&e.project!=="Mega Momday").map(e=>e.project))];
-  let latestUpload=null;
-  for(const pj of sourceProjects){
-    serverLogRaw.filter(e=>e.project===pj&&e.url===url&&e.event==="uploaded"&&isTodayTs(e.ts)).forEach(e=>{
-      if(!latestUpload||e.ts>latestUpload.ts)latestUpload=e;
-    });
-  }
-  return latestUpload;
+  return getBestStatus("MB PAPE",url);
 }
 function mmCounterpart(url){return items.find(x2=>x2.pj==="Mega Momday"&&x2.url===url);}
 
@@ -536,12 +533,22 @@ function syncAllFromServer() {
   let changed = false;
   items.forEach(x => {
     const k = sKey(x), uk = uKey(x);
-    // ดึงสถานะโปรเจกต์ตัวเอง
+    if(isOpenOnlyProject(x.pj)){
+      const latest=latestEventFor(x.pj,x.url);
+      if(latest?.event==="opened"){
+        me.opened[x.url]=latest.ts;changed=true;
+      }else if(latest?.event==="cleared"){
+        delete me.opened[x.url];changed=true;
+      }
+      return;
+    }
+    // Same-project status: Upload wins; otherwise the latest action wins.
     let st = getBestStatus(x.pj, x.url);
-    // One-way Sync: ถ้าเป็น Mega Momday ให้เช็คจาก MB PAPE ด้วย
+    // One-way hierarchy: MB PAPE controls the matching Mega Momday product.
     if (x.pj === "Mega Momday") {
       const mb = getBestStatus("MB PAPE", x.url);
-      if (mb && (!st || mb.event === "uploaded" || mb.ts > st.ts)) st = mb;
+      const ownUpload=st?.event==="uploaded", mbUpload=mb?.event==="uploaded";
+      if(mbUpload || (mb && !ownUpload))st=mb;
     }
 
     if (st) {
@@ -552,27 +559,24 @@ function syncAllFromServer() {
       } else if (st.event === "captured" || st.event === "opened") {
         if (isOpenOnlyProject(x.pj)) me.opened[x.url] = st.ts;
         else { me.cap[k] = 1; delete me.oos[k]; me.ts[k] = st.ts; }
+      } else if (st.event === "cleared") {
+        delete me.cap[k]; delete me.oos[k]; delete me.ts[k];
       }
       changed = true;
     } else if (me.autoSame && me.autoSame[k]) { // กรณีโดนสั่ง Clear จากเครื่องอื่น
       delete me.cap[k]; delete me.oos[k]; delete me.uploaded[uk]; delete me.opened[x.url];
       changed = true;
     }
-  });
-  if (changed) saveMe();
-  return changed;
-}
-
-    // 2) Cross-project mirror INTO Mega Momday only, uploaded-only, irreversible.
+    // Mirror uploaded source-project items into Mega Momday once, if matched.
     if(x.pj==="Mega Momday"&&!me.mmFalseMatch[x.url]){
       const mirror=crossProjectMirrorInfo(x.url);
       const kMM=sKey(x,"12:00"), ukMM=uKey(x,"12:00");
-      if(mirror&&!me.uploaded[ukMM]){
+      if(mirror&&mirror.event==="uploaded"&&!me.uploaded[ukMM]){
         me.cap[kMM]=1;me.uploaded[ukMM]=1;me.ts[kMM]=mirror.ts;me.reviewed[kMM]=true;changed=true;
       }
     }
   });
-  if(changed)saveMe();
+  if (changed) saveMe();
   return changed;
 }
 
@@ -602,6 +606,7 @@ function uKey(x,slotOverride){return x.pj==="Mega Momday"?sKey(x,slotOverride):(
 function isOpenOnlyProject(pj){return !FOLDER_MAP[pj];}
 const isOpened=x=>!!me.opened[x.url];
 const isCap=x=>!!me.cap[sKey(x)], isOos=x=>!!me.oos[sKey(x)];
+const isUploaded=x=>!!me.uploaded[uKey(x)];
 const isDone=x=>isOpenOnlyProject(x.pj)?isOpened(x):(isCap(x)||isOos(x));
 const requiredList=()=>curList().filter(x=>isCap(x)&&!PIC[sKey(x)]&&!me.uploaded[uKey(x)]);
 
@@ -671,7 +676,8 @@ function render(){
   $("openOnlyNote").style.display=openOnly?"block":"none";
   // hide everything that only makes sense when there's a real flag/photo/upload flow
   $("gateArea").style.display=openOnly?"none":"block";
-  $("actioncluster").style.display=openOnly?"none":"flex";
+  $("actioncluster").style.display="flex";
+  $("bulkPic").style.display=openOnly?"none":"block";
   $("moreBoxWrap").style.display=openOnly?"none":"block";
   $("driveBar").style.display=openOnly?"none":"block";
 
@@ -688,7 +694,7 @@ function render(){
 
   $("board").innerHTML=it.map((x,i)=>{
     const cls=openOnly?(isOpened(x)?'d':''):`${isCap(x)?'d':''} ${isOos(x)?'o':''}`;
-    return `<div class="cell ${cls} ${i===cur?'n':''}" data-j="${i}">${i+1}</div>`;}).join("");
+    return `<div class="cell ${cls} ${i===cur?'n':''}" data-j="${i}">${it[i].no||i+1}</div>`;}).join("");
 
   const nx=it.findIndex(x=>!isDone(x));
   if(!it.length){
@@ -698,14 +704,17 @@ function render(){
   }else{
     const decideRow=openOnly?"":`<div class="decide"><div data-t="${nx}">มีของ</div><div class="oos" data-s="${nx}">หมด</div></div>`;
     $("nextCard").innerHTML=`<div class="toprow"><div style="min-width:0;flex:1"><div class="lbl">ถัดไป · ลำดับ ${nx+1}${it[nx].no?" · No."+it[nx].no:""}</div>
-        <div class="no">${(it[nx].name||short(it[nx].url)).slice(0,60)}</div>
+        <div class="no">${it[nx].name||short(it[nx].url)}</div>
         <div class="sh">${it[nx].am}${it[nx].pid?" · ID "+it[nx].pid:""}</div>
         ${crossAmBadge(it[nx])}</div>
       <a href="${it[nx].url}" target="_blank" rel="noopener" data-o="${nx}">เปิด</a></div>${decideRow}`;
   }
 
-  const hasDone = openOnly ? it.some(x => isOpened(x)) : (nc > 0 || no > 0);
-$("btnResetAll").style.display = hasDone ? "block" : "none";
+  const hasDone = openOnly ? it.some(x => isOpened(x)) : it.some(x => isDone(x)&&!isUploaded(x));
+  $("btnResetAll").textContent=openOnly
+    ? "🔄 รีเซ็ตสถานะการเปิดทั้งหมด (D9 Ops PAPE)"
+    : "🔄 รีเซ็ตสถานะชุดนี้ (AM + Platform ที่เลือกอยู่)";
+  $("btnResetAll").style.display = hasDone ? "block" : "none";
   $("pos").textContent=it.length?`#${Math.min(cur+1,it.length)} / ${it.length}`:"—";
 
   const rows=it.map((x,i)=>{
@@ -713,7 +722,7 @@ $("btnResetAll").style.display = hasDone ? "block" : "none";
       const opened=isOpened(x),ts=me.opened[x.url];
       if(filter==="todo"&&opened)return"";if(filter==="done"&&!opened)return"";
       return `<div class="item ${opened?'d':''} ${i===cur?'cur':''}" id="it${i}">
-        <div class="nums"><b>${i+1}</b>${x.no?`<s>No.${x.no}</s>`:""}</div>
+        <div class="nums"><b>${x.no||i+1}</b></div>
         <div class="mid">
           <div class="nm">${x.name||"(ไม่มีชื่อสินค้า)"}</div>
           <div class="meta"><span class="am">${x.am}</span>${x.pid?`<span class="lk">ID ${x.pid}</span>`:""}<span class="lk">${short(x.url)}</span></div>
@@ -724,7 +733,7 @@ $("btnResetAll").style.display = hasDone ? "block" : "none";
     const c=isCap(x),o=isOos(x),ts=me.ts[sKey(x)];
     if(filter==="todo"&&(c||o))return"";if(filter==="done"&&!c&&!o)return"";
     return `<div class="item ${c?'d':''} ${o?'o':''} ${i===cur?'cur':''}" id="it${i}">
-      <div class="nums"><b>${i+1}</b>${x.no?`<s>No.${x.no}</s>`:""}</div>
+      <div class="nums"><b>${x.no||i+1}</b></div>
       <div class="mid">
         <div class="nm">${x.name||"(ไม่มีชื่อสินค้า)"}${o?'<span class="badge">ของหมด</span>':''}</div>
         <div class="meta"><span class="am">${x.am}</span>${x.pid?`<span class="lk">ID ${x.pid}</span>`:""}<span class="lk">${short(x.url)}</span></div>
@@ -742,12 +751,12 @@ $("btnResetAll").style.display = hasDone ? "block" : "none";
   updateDriveBtnState();
 }
 
-function setCap(i,on){const x=curList()[i];if(!x)return;const wasNew=!isDone(x);const k=sKey(x);
+function setCap(i,on){const x=curList()[i];if(!x)return;if(isUploaded(x))return toast("รายการนี้อัปโหลดแล้ว รีเซ็ตไม่ได้จนกว่าจะขึ้นวันใหม่");const wasNew=!isDone(x);const k=sKey(x);
   if(on){me.cap[k]=1;delete me.oos[k];}else{delete me.cap[k];delete me.oos[k];}
   me.ts[k]=Date.now();pingLog(x,on?"captured":"cleared");
   if(wasNew&&on)advance(i);else cur=i;
   render();saveMe();}
-function setOos(i){const x=curList()[i];if(!x)return;const wasNew=!isDone(x);
+function setOos(i){const x=curList()[i];if(!x)return;if(isUploaded(x))return toast("รายการนี้อัปโหลดแล้ว รีเซ็ตไม่ได้จนกว่าจะขึ้นวันใหม่");const wasNew=!isDone(x);
   const k=sKey(x);
   if(me.oos[k]){delete me.oos[k];}else{me.oos[k]=1;delete me.cap[k];delete PIC[k];delete me.reviewed[k];}
   me.ts[k]=Date.now();pingLog(x,me.oos[k]?"oos":"cleared");
@@ -801,10 +810,15 @@ if(o){
     if(!confirm("รีเซ็ตสถานะเฉพาะชุดที่กำลังดูอยู่ตอนนี้? (รูปที่แนบในชุดนี้จะถูกลบออก)"))return;
     const it=curList();
     it.forEach(x => {
+  if(isUploaded(x))return;
   const k = sKey(x);
   delete me.cap[k]; delete me.oos[k]; delete me.ts[k]; delete me.opened[x.url];
-  delete me.reviewed[k]; delete me.uploaded[uKey(x)]; picDel(k);
+  delete me.reviewed[k]; picDel(k);
   pingLog(x, "cleared"); // แจ้งเครื่องอื่นว่ารายการนี้ถูกล้างแล้ว
+});
+    saveMe();render();toast("รีเซ็ตสถานะแล้ว");
+    return;
+  }
 });
 
 /* ---------------- Photo attach (Gate 1: sequential match) ---------------- */
@@ -879,7 +893,7 @@ async function mirrorToMegaMomday(x){
   // 12:00 (MB PAPE, the only source project, only ever runs at 12:00 — no real question
   // to ask). AM sees a dismissible note afterward (crossAmBadge) in case it's genuinely
   // the wrong match — no popup blocks the upload itself. Returns true if it sent a file.
-  if(me.mmFalseMatch[x.url])return false;
+  if(x.pj!=="MB PAPE"||me.mmFalseMatch[x.url])return false;
   const mm=mmCounterpart(x.url);
   if(!mm)return false;
   const mmSlot="12:00";
