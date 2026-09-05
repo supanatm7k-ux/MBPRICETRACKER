@@ -681,6 +681,15 @@ const isUploaded=x=>!!me.uploaded[uKey(x)];
 const isDone=x=>isOpenOnlyProject(x.pj)?isOpened(x):(isCap(x)||isOos(x));
 const requiredList=()=>curList().filter(x=>isCap(x)&&!PIC[sKey(x)]&&!me.uploaded[uKey(x)]);
 
+function clearLocalStatusForItem(x){
+  const k=sKey(x), uk=uKey(x);
+  delete me.cap[k]; delete me.oos[k]; delete me.ts[k]; delete me.reviewed[k]; delete me.autoSame[k];
+  delete me.opened[openKey(x)];
+  delete me.uploaded[uk]; delete me.uploadedFile[uk];
+  delete PIC[k];
+  try { if (typeof picDel === "function") picDel(k); } catch (e) {}
+}
+
 function pfColor(v){
   if(/shopee/i.test(v))return{fill:"#EE4D2D",tint:"rgba(238,77,45,.12)"};
   return null;
@@ -878,16 +887,19 @@ if(o){
   if(rst){
     if(!confirm("รีเซ็ตสถานะเฉพาะชุดที่กำลังดูอยู่ตอนนี้? (รูปที่แนบในชุดนี้จะถูกลบออก)"))return;
     // Reset exactly the visible screen: selected Project + AM + Platform (+ slot where applicable).
+    // Important: uploaded rows are intentionally kept as irreversible proof of success, while
+    // every non-uploaded local state for the visible slice is fully cleared.
     const it=curList();
     const clears=[];
     const skippedUploaded=[];
     it.forEach(x => {
-  if(isUploaded(x)){skippedUploaded.push(x);return;}
-  const k = sKey(x);
-  delete me.cap[k]; delete me.oos[k]; delete me.ts[k]; delete me.opened[openKey(x)];
-  delete me.reviewed[k]; picDel(k);
-  clears.push(pingLog(x, "cleared")); // แจ้งเครื่องอื่นว่ารายการนี้ถูกล้างแล้ว
-});
+      if(isUploaded(x)){
+        skippedUploaded.push(x);
+        return;
+      }
+      clearLocalStatusForItem(x);
+      clears.push(pingLog(x, "cleared")); // แจ้งเครื่องอื่นว่ารายการนี้ถูกล้างแล้ว
+    });
     const overlay=$("uploadOverlay"), title=overlay.querySelector(".up-title"), icon=overlay.querySelector(".up-icon");
     overlay.classList.add("on");
     icon.textContent="🔄";
