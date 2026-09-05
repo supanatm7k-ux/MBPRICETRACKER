@@ -457,7 +457,7 @@ async function pull(showToast){
     build(txt);render();
     $("sync").textContent="อัปเดตล่าสุด "+new Date().toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"});
     if(showToast)toast("อัปเดตลิสต์แล้ว");
-    loadServerStatus();
+    await loadServerStatus();
   }catch(e){
     const c=localStorage.getItem(KCACHE);
     if(c){build(c);render();
@@ -490,7 +490,9 @@ async function loadServerStatus(){
     serverLogRaw=rows.slice(1).map(r=>({ts:(typeof r[0]==="number"?r[0]:new Date(r[0]).getTime()),am:r[1],project:r[2],platform:r[3],url:r[6],event:r[7]}));
     syncAllFromServer();
     render();
+    return true;
   }catch(e){/* silent — this is a nice-to-have overlay, not core functionality */}
+  return false;
 }
 function isTodayTs(ts) {
   const d = new Date(ts);
@@ -819,10 +821,26 @@ if(o){
   delete me.reviewed[k]; picDel(k);
   clears.push(pingLog(x, "cleared")); // แจ้งเครื่องอื่นว่ารายการนี้ถูกล้างแล้ว
 });
-    saveMe();render();toast("กำลังรีเซ็ตทุกเครื่อง…");
+    const overlay=$("uploadOverlay"), title=overlay.querySelector(".up-title"), icon=overlay.querySelector(".up-icon");
+    overlay.classList.add("on");
+    icon.textContent="🔄";
+    title.textContent="กำลังรีเซ็ตสถานะทุกเครื่อง";
+    $("uploadBarInner").style.width="35%";
+    $("uploadText").textContent="กำลังส่งสถานะล้างข้อมูล… กรุณารอ";
+    saveMe();
     await Promise.all(clears);
-    await loadServerStatus();
-    saveMe();render();toast("รีเซ็ตทุกเครื่องแล้ว");
+    $("uploadBarInner").style.width="75%";
+    $("uploadText").textContent="กำลังตรวจสอบสถานะกลาง… กรุณารอ";
+    const synced=await loadServerStatus();
+    $("uploadBarInner").style.width="100%";
+    $("uploadText").textContent=synced?"รีเซ็ตเสร็จแล้ว":"ตรวจสอบไม่สำเร็จ กรุณากดอัปเดตลิสต์อีกครั้ง";
+    setTimeout(()=>{
+      overlay.classList.remove("on");
+      icon.textContent="🚀";
+      title.textContent="กำลังส่งรูปเข้า Google Drive";
+    },900);
+    if(synced)toast("รีเซ็ตสถานะทุกเครื่องแล้ว");
+    else toast("รีเซ็ตแล้ว แต่ตรวจสอบเซิร์ฟเวอร์ไม่สำเร็จ");
     return;
   }
 });
@@ -1254,6 +1272,8 @@ picLoadAll().then(render);
 const cached=localStorage.getItem(KCACHE);
 if(cached){build(cached);render();}
 pull(false);
+// Keep status changes from other phones visible without requiring a manual refresh.
+setInterval(()=>{loadServerStatus();},15000);
 </script>
 </body>
 </html>
