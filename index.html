@@ -431,13 +431,18 @@ function build(csv){
   const iSP=ix("shopee product link","shopee shop product link","shopee");
   if([iNo,iPj,iAm,iNm].some(i=>i<0))throw new Error("sheet columns not found");
   const out=[];
+  const seqByGroup={};
   rows.slice(1).forEach(r=>{
     const pj=(r[iPj]||"").trim(), am=(r[iAm]||"").trim(), nm=(r[iNm]||"").trim();
     const pid=(r[iPid]||"").trim();
     const no=parseInt((r[iNo]||"").trim(),10);
     [[iTT,"TikTok Shop"],[iSP,"Shopee"]].forEach(([i,pf])=>{
       const u=((r[i]||"").match(/https?:\/\/\S+/)||[""])[0];
-      if(u&&pj&&am)out.push({no:isNaN(no)?null:no,pj,am,pf,name:nm,pid,url:u});
+      if(u&&pj&&am){
+        const group=pj+"\u0000"+am+"\u0000"+pf;
+        seqByGroup[group]=(seqByGroup[group]||0)+1;
+        out.push({no:isNaN(no)?null:no,seq:seqByGroup[group],pj,am,pf,name:nm,pid,url:u});
+      }
     });
   });
   items=out;
@@ -698,7 +703,7 @@ function render(){
 
   $("board").innerHTML=it.map((x,i)=>{
     const cls=openOnly?(isOpened(x)?'d':''):`${isCap(x)?'d':''} ${isOos(x)?'o':''}`;
-    return `<div class="cell ${cls} ${i===cur?'n':''}" data-j="${i}">${it[i].no||i+1}</div>`;}).join("");
+    return `<div class="cell ${cls} ${i===cur?'n':''}" data-j="${i}">${it[i].seq||i+1}</div>`;}).join("");
 
   const nx=it.findIndex(x=>!isDone(x));
   if(!it.length){
@@ -726,7 +731,7 @@ function render(){
       const opened=isOpened(x),ts=me.opened[openKey(x)];
       if(filter==="todo"&&opened)return"";if(filter==="done"&&!opened)return"";
       return `<div class="item ${opened?'d':''} ${i===cur?'cur':''}" id="it${i}">
-        <div class="nums"><b>${x.no||i+1}</b></div>
+        <div class="nums"><b>${x.seq||i+1}</b>${x.no?`<s>No.${x.no}</s>`:""}</div>
         <div class="mid">
           <div class="nm">${x.name||"(ไม่มีชื่อสินค้า)"}</div>
           <div class="meta"><span class="am">${x.am}</span>${x.pid?`<span class="lk">ID ${x.pid}</span>`:""}<span class="lk">${short(x.url)}</span></div>
@@ -737,7 +742,7 @@ function render(){
     const c=isCap(x),o=isOos(x),ts=me.ts[sKey(x)];
     if(filter==="todo"&&(c||o))return"";if(filter==="done"&&!c&&!o)return"";
     return `<div class="item ${c?'d':''} ${o?'o':''} ${i===cur?'cur':''}" id="it${i}">
-      <div class="nums"><b>${x.no||i+1}</b></div>
+      <div class="nums"><b>${x.seq||i+1}</b>${x.no?`<s>No.${x.no}</s>`:""}</div>
       <div class="mid">
         <div class="nm">${x.name||"(ไม่มีชื่อสินค้า)"}${o?'<span class="badge">ของหมด</span>':''}</div>
         <div class="meta"><span class="am">${x.am}</span>${x.pid?`<span class="lk">ID ${x.pid}</span>`:""}<span class="lk">${short(x.url)}</span></div>
@@ -812,10 +817,12 @@ if(o){
   const rst=e.target.closest("#btnResetAll");
   if(rst){
     if(!confirm("รีเซ็ตสถานะเฉพาะชุดที่กำลังดูอยู่ตอนนี้? (รูปที่แนบในชุดนี้จะถูกลบออก)"))return;
+    // Reset exactly the visible screen: selected Project + AM + Platform (+ slot where applicable).
     const it=curList();
     const clears=[];
+    const skippedUploaded=[];
     it.forEach(x => {
-  if(isUploaded(x))return;
+  if(isUploaded(x)){skippedUploaded.push(x);return;}
   const k = sKey(x);
   delete me.cap[k]; delete me.oos[k]; delete me.ts[k]; delete me.opened[openKey(x)];
   delete me.reviewed[k]; picDel(k);
@@ -839,7 +846,10 @@ if(o){
       icon.textContent="🚀";
       title.textContent="กำลังส่งรูปเข้า Google Drive";
     },900);
-    if(synced)toast("รีเซ็ตสถานะทุกเครื่องแล้ว");
+    if(synced){
+      const suffix=skippedUploaded.length?` (${skippedUploaded.length} รายการอัปโหลดแล้วจึงไม่รีเซ็ต)`:"";
+      toast("รีเซ็ตสถานะทุกเครื่องแล้ว"+suffix);
+    }
     else toast("รีเซ็ตแล้ว แต่ตรวจสอบเซิร์ฟเวอร์ไม่สำเร็จ");
     return;
   }
