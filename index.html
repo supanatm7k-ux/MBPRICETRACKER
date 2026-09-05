@@ -492,7 +492,11 @@ async function loadServerStatus(){
     const rows=await res.json();
     // r[0] ตอนนี้เป็นตัวเลข epoch จากเซิร์ฟเวอร์แล้ว (ไม่ใช่สตริงวันที่) — กันปัญหา
     // Safari/Chrome/Node ตีความสตริงวันที่ต่างกัน ยังรองรับข้อมูลเก่าที่อาจเป็นสตริงไว้เผื่อด้วย
-    serverLogRaw=rows.slice(1).map(r=>({ts:(typeof r[0]==="number"?r[0]:new Date(r[0]).getTime()),am:r[1],project:r[2],platform:r[3],url:r[6],event:r[7]}));
+    serverLogRaw=rows.slice(1).map(r=>{
+      const ts=(typeof r[0]==="number"?r[0]:new Date(r[0]).getTime());
+      const slot=(r[8]||slotFromTs(ts));
+      return {ts,am:r[1],project:r[2],platform:r[3],no:r[4]||"",pid:r[5]||"",url:r[6],event:r[7],slot};
+    });
     syncAllFromServer();
     render();
     return true;
@@ -506,9 +510,22 @@ function isTodayTs(ts) {
          d.getMonth() === now.getMonth() && 
          d.getFullYear() === now.getFullYear();
 }
-function getBestStatus(pj, url) {
+function slotFromTs(ts){
+  const d=new Date(ts);if(Number.isNaN(d.getTime()))return null;
+  const total=d.getHours()*60 + d.getMinutes();
+  if(total >= 20*60+1)return "20:00";
+  if(total >= 12*60+1)return "12:00";
+  return null;
+}
+function matchSlotForStatus(e, slotName){
+  if(!slotName)return true;
+  if(e.slot) return e.slot === slotName;
+  const derived=slotFromTs(e.ts);
+  return derived === slotName;
+}
+function getBestStatus(pj, url, slotName) {
   let best = null;
-  const evts = serverLogRaw.filter(e => e.project === pj && e.url === url && isTodayTs(e.ts));
+  const evts = serverLogRaw.filter(e => e.project === pj && e.url === url && isTodayTs(e.ts) && matchSlotForStatus(e, slotName));
   // Upload is irreversible for the current day and outranks every other event.
   const up = evts.filter(e => e.event === "uploaded").sort((a,b) => b.ts - a.ts)[0];
   if (up) return up;
@@ -516,24 +533,25 @@ function getBestStatus(pj, url) {
   evts.sort((a,b) => b.ts - a.ts);
   return evts[0]||null;
 }
-function latestEventFor(project,url){
+function latestEventFor(project,url,slotName){
   // Only today's events count — an upload from a previous day is stale evidence for
   // today's price/stock, and the daily reset already treats every day as a fresh
   // start, so cross-AM/cross-project sync must respect that same boundary too.
   let best=null;
   for(const e of serverLogRaw){
     if(e.project!==project||e.url!==url||!isTodayTs(e.ts))continue;
+    if(slotName && !matchSlotForStatus(e, slotName))continue;
     if(!best||e.ts>best.ts)best=e;
   }
   return best;
 }
-function sameProjectStatus(project,url){
-  const e=latestEventFor(project,url);
+function sameProjectStatus(project,url,slotName){
+  const e=latestEventFor(project,url,slotName);
   if(!e||e.event==="cleared")return null;
   return e;
 }
 function crossProjectMirrorInfo(url){
-  return getBestStatus("MB PAPE",url);
+  return getBestStatus("MB PAPE",url,"12:00");
 }
 function mmCounterpart(url){return items.find(x2=>x2.pj==="Mega Momday"&&x2.url===url);}
 
@@ -550,13 +568,14 @@ function syncAllFromServer() {
       }
       return;
     }
+    const slotName = x.pj === "Mega Momday" ? TIME_SLOTS[sel.slot||0] : null;
     // Same-project status: Upload wins; otherwise the latest action wins.
-    let st = getBestStatus(x.pj, x.url);
-    // One-way hierarchy: MB PAPE controls the matching Mega Momday product.
+    // For Mega Momday, never let a 12:00 upload satisfy a 20:00 slot (and vice versa).
+    let st = slotName ? getBestStatus(x.pj, x.url, slotName) : getBestStatus(x.pj, x.url);
     if (x.pj === "Mega Momday") {
-      const mb = getBestStatus("MB PAPE", x.url);
-      const ownUpload=st?.event==="uploaded", mbUpload=mb?.event==="uploaded";
-      if(mbUpload || (mb && !ownUpload))st=mb;
+      const mb = getBestStatus("MB PAPE", x.url, "12:00");
+      const ownUpload=st?.event==="uploaded";
+      if(slotName === "12:00" && ((mb && mb.event === "uploaded") || (mb && !ownUpload))) st = mb;
     }
 
     if (st) {
@@ -579,7 +598,7 @@ function syncAllFromServer() {
     if(x.pj==="Mega Momday"&&!me.mmFalseMatch[x.url]){
       const mirror=crossProjectMirrorInfo(x.url);
       const kMM=sKey(x,"12:00"), ukMM=uKey(x,"12:00");
-      if(mirror&&mirror.event==="uploaded"&&!me.uploaded[ukMM]){
+      if(slotName === "12:00" && mirror && mirror.event === "uploaded" && !me.uploaded[ukMM]){
         me.cap[kMM]=1;me.uploaded[ukMM]=1;me.ts[kMM]=mirror.ts;me.reviewed[kMM]=true;changed=true;
       }
     }
@@ -593,10 +612,12 @@ function serverCall(payload){
   return fetch(SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(payload)});
 }
 function pingLog(x,eventType){
-  return serverCall({am:x.am,project:x.pj,platform:x.pf,no:x.no||"",pid:x.pid||"",url:x.url,event:eventType}).catch(()=>null);
+  const slot=x.pj==="Mega Momday"?TIME_SLOTS[sel.slot||0]:"";
+  return serverCall({am:x.am,project:x.pj,platform:x.pf,no:x.no||"",pid:x.pid||"",url:x.url,event:eventType,slot}).catch(()=>null);
 }
 function pingUploaded(x,filename){
-  serverCall({am:x.am,project:x.pj,platform:x.pf,no:x.no||"",pid:x.pid||"",url:x.url,event:"uploaded",file:filename||""}).catch(()=>{});
+  const slot=x.pj==="Mega Momday"?TIME_SLOTS[sel.slot||0]:"";
+  serverCall({am:x.am,project:x.pj,platform:x.pf,no:x.no||"",pid:x.pid||"",url:x.url,event:"uploaded",file:filename||"",slot}).catch(()=>{});
 }
 
 /* ---------------- Core state ----------------
@@ -940,7 +961,7 @@ async function mirrorToMegaMomday(x){
     const res2=await serverCall({
       amName:mm.am, project:"Mega Momday", platform:mm.pf, folderId:mmFolderId, dateFolder:fileDateStr(),
       files:[{name:mmFname,mimeType:"image/jpeg",base64:PIC[sKey(x)].split("base64,")[1],
-              no:mm.no||"",pid:mm.pid||"",url:mm.url}]
+              no:mm.no||"",pid:mm.pid||"",url:mm.url}], slot:mmSlot
     });
     const result2=await res2.json();
     if(result2.status==="success"){
@@ -989,14 +1010,15 @@ $("driveBtn").onclick=async()=>{
       continue;
     }
 
-    const pidPart=x.pid?safe(x.pid):"NoID";
+      const pidPart=x.pid?safe(x.pid):"NoID";
+    const slotLabel=x.pj==="Mega Momday"?TIME_SLOTS[sel.slot||0]:"";
     const fname=x.pj==="Mega Momday"
-      ? `${fileDateStr()}_${slotFile(TIME_SLOTS[sel.slot||0])}_${safe(x.am)}_${x.no||"NA"}_${pidPart}_${safe(x.pf)}.jpg`
+      ? `${fileDateStr()}_${slotFile(slotLabel)}_${safe(x.am)}_${x.no||"NA"}_${pidPart}_${safe(x.pf)}.jpg`
       : `${fileDateStr()}_${safe(x.am)}_${x.no||"NA"}_${pidPart}_${safe(x.pf)}.jpg`;
     const payload={
       amName:x.am, project:PJ[sel.pj], platform:PF[sel.pf], folderId, dateFolder:fileDateStr(),
       files:[{name:fname,mimeType:"image/jpeg",base64:PIC[sKey(x)].split("base64,")[1],
-              no:x.no||"",pid:x.pid||"",url:x.url}]
+              no:x.no||"",pid:x.pid||"",url:x.url}], slot:slotLabel
     };
     try{
       const res=await serverCall(payload);
